@@ -25,6 +25,34 @@ private func kNumberCircleImage(_ number: Int) -> UIImage {
     builtinSystemImage("\(number).circle.fill")
 }
 
+private func kNumberTextImage(_ number: Int, theme: MarkdownTheme) -> UIImage {
+    let font = theme.fonts.body
+    let numberText = "\(number)."
+    
+    // 计算文本宽度
+    let textAttributes: [NSAttributedString.Key: Any] = [
+        .font: font,
+        .foregroundColor: UIColor.label
+    ]
+    let textSize = numberText.size(withAttributes: textAttributes)
+    
+    // TODO: 宽度不够会被截断
+    let height = font.pointSize
+    let maxWidth: CGFloat = 24
+    let x: CGFloat = maxWidth - textSize.width - 2 // 右对齐时，x坐标为宽度减去文本宽度
+    let renderer = UIGraphicsImageRenderer(size: CGSize(width: maxWidth, height: height))
+    let image = renderer.image { context in
+        let textRect = CGRect(
+            x: x,
+            y: (height - textSize.height) / 2,
+            width: textSize.width,
+            height: textSize.height
+        )
+        numberText.draw(in: textRect, withAttributes: textAttributes)
+    }
+    return image.withRenderingMode(.alwaysTemplate)
+}
+
 extension TextBuilder {
     @inline(__always)
     static func lineBoundingBox(_ line: CTLine, lineOrigin: CGPoint) -> CGRect {
@@ -78,7 +106,8 @@ extension TextBuilder {
                 let rect = lineBoundingBox(line, lineOrigin: lineOrigin)
                     .offsetBy(dx: -16, dy: 0)
                     .offsetBy(dx: -8, dy: 0)
-                let image = kNumberCircleImage(num)
+                // let image = kNumberCircleImage(num)
+                let image = kNumberTextImage(num, theme: theme)
                 guard let cgImage = image.cgImage else { return }
                 let imageSize = image.size
                 let targetRect: CGRect = .init(
