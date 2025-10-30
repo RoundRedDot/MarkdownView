@@ -17,6 +17,7 @@ final class TableViewCellManager {
     private(set) var widths: [CGFloat] = []
     private(set) var heights: [CGFloat] = []
     private var theme: MarkdownTheme = .default
+    private weak var delegate: LTXLabelDelegate?
 
     // MARK: - Cell Configuration
 
@@ -70,6 +71,11 @@ final class TableViewCellManager {
         updateCellsAppearance()
     }
 
+    func setDelegate(_ delegate: LTXLabelDelegate?) {
+        self.delegate = delegate
+        cells.forEach { $0.delegate = delegate }
+    }
+
     // MARK: - Private Methods
 
     private func createOrUpdateCell(
@@ -86,6 +92,7 @@ final class TableViewCellManager {
             cell.isSelectable = true
             cell.backgroundColor = .clear
             cell.preferredMaxLayoutWidth = maximumWidth
+            cell.delegate = delegate
             containerView.addSubview(cell)
             cells.append(cell)
         } else {
