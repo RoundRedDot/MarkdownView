@@ -192,11 +192,11 @@ final class TableView: UIView {
 // MARK: - LTXLabelDelegate
 
 extension TableView: LTXLabelDelegate {
-    func ltxLabelSelectionDidChange(_ label: LTXLabel, selection: NSRange?) {
+    func ltxLabelSelectionDidChange(_: LTXLabel, selection _: NSRange?) {
         // Reserved for future use
     }
 
-    func ltxLabelDetectedUserEventMovingAtLocation(_ label: LTXLabel, location: CGPoint) {
+    func ltxLabelDetectedUserEventMovingAtLocation(_: LTXLabel, location _: CGPoint) {
         // Reserved for future use
     }
 
@@ -204,7 +204,7 @@ extension TableView: LTXLabelDelegate {
         guard let highlightRegion = region else { return }
         let link = highlightRegion.attributes[NSAttributedString.Key.link]
         let range = highlightRegion.stringRange
-        
+
         // Convert location from cell to MarkdownTextView coordinate system
         let locationInMarkdownView = superview.flatMap { label.convert(location, to: $0) } ?? location
 
