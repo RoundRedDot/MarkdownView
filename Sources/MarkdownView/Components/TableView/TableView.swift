@@ -33,6 +33,7 @@ final class TableView: UIView {
     private var widths: [CGFloat] = []
     private var heights: [CGFloat] = []
     private var theme: MarkdownTheme = .default
+    var linkHandler: ((LinkPayload, NSRange, CGPoint) -> Void)?
 
     // MARK: - Computed Properties
 
@@ -153,6 +154,7 @@ final class TableView: UIView {
 
     private func configureCells() {
         cellManager.setTheme(theme)
+        cellManager.setDelegate(self)
         cellManager.configureCells(
             for: contents,
             in: scrollView,
@@ -184,5 +186,32 @@ final class TableView: UIView {
             mutableAttributedString.replaceCharacters(in: rangeOfStringToBeReplaced, with: replaced)
         }
         return mutableAttributedString
+    }
+}
+
+// MARK: - LTXLabelDelegate
+
+extension TableView: LTXLabelDelegate {
+    func ltxLabelSelectionDidChange(_ label: LTXLabel, selection: NSRange?) {
+        // Reserved for future use
+    }
+
+    func ltxLabelDetectedUserEventMovingAtLocation(_ label: LTXLabel, location: CGPoint) {
+        // Reserved for future use
+    }
+
+    func ltxLabelDidTapOnHighlightContent(_ label: LTXLabel, region: LTXHighlightRegion?, location: CGPoint) {
+        guard let highlightRegion = region else { return }
+        let link = highlightRegion.attributes[NSAttributedString.Key.link]
+        let range = highlightRegion.stringRange
+        
+        // Convert location from cell to MarkdownTextView coordinate system
+        let locationInMarkdownView = superview.flatMap { label.convert(location, to: $0) } ?? location
+
+        if let url = link as? URL {
+            linkHandler?(.url(url), range, locationInMarkdownView)
+        } else if let string = link as? String {
+            linkHandler?(.string(string), range, locationInMarkdownView)
+        }
     }
 }
