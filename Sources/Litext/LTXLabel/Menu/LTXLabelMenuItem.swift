@@ -15,33 +15,33 @@ enum LTXLabelMenuItem: CaseIterable {
     var action: Selector? {
         switch self {
         case .copy:
-            return #selector(LTXLabel.copyMenuItemTapped)
+            #selector(LTXLabel.copyMenuItemTapped)
         case .selectAll:
-            return #selector(LTXLabel.selectAllTapped)
+            #selector(LTXLabel.selectAllTapped)
         case .share:
-            return #selector(LTXLabel.shareMenuItemTapped)
+            #selector(LTXLabel.shareMenuItemTapped)
         }
     }
 
     var title: String {
         switch self {
         case .copy:
-            return LocalizedText.copy
+            LocalizedText.copy
         case .selectAll:
-            return LocalizedText.selectAll
+            LocalizedText.selectAll
         case .share:
-            return LocalizedText.share
+            LocalizedText.share
         }
     }
 
     var image: UIImage? {
         switch self {
         case .copy:
-            return UIImage(systemName: "doc.on.doc")
+            UIImage(systemName: "doc.on.doc")
         case .selectAll:
-            return UIImage(systemName: "selection.pin.in.out")
+            UIImage(systemName: "selection.pin.in.out")
         case .share:
-            return UIImage(systemName: "square.and.arrow.up")
+            UIImage(systemName: "square.and.arrow.up")
         }
     }
 

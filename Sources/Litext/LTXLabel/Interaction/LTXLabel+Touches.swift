@@ -274,7 +274,7 @@ extension LTXLabel {
 
     override public func canPerformAction(
         _ action: Selector,
-        withSender sender: Any?
+        withSender _: Any?
     ) -> Bool {
         if action == #selector(copyMenuItemTapped) {
             return selectionRange != nil

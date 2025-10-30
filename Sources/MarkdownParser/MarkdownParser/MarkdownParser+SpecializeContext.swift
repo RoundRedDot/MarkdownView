@@ -85,16 +85,16 @@ private extension MarkdownParser.SpecializeContext {
                 pickedNodes.append(child)
             case let .bulletedList(isTight, items):
                 let processedItems = processItems(items, using: rawListItemByCherryPick)
-                sanitizedChildren.append(.bulletedList(isTight: isTight, items: processedItems.map { $0.item }))
-                pickedNodes.append(contentsOf: processedItems.flatMap { $0.picks })
+                sanitizedChildren.append(.bulletedList(isTight: isTight, items: processedItems.map(\.item)))
+                pickedNodes.append(contentsOf: processedItems.flatMap(\.picks))
             case let .numberedList(isTight, start, items):
                 let processedItems = processItems(items, using: rawListItemByCherryPick)
-                sanitizedChildren.append(.numberedList(isTight: isTight, start: start, items: processedItems.map { $0.item }))
-                pickedNodes.append(contentsOf: processedItems.flatMap { $0.picks })
+                sanitizedChildren.append(.numberedList(isTight: isTight, start: start, items: processedItems.map(\.item)))
+                pickedNodes.append(contentsOf: processedItems.flatMap(\.picks))
             case let .taskList(isTight, items):
                 let processedItems = processItems(items, using: rawTaskListItemByCherryPick)
-                sanitizedChildren.append(.taskList(isTight: isTight, items: processedItems.map { $0.item }))
-                pickedNodes.append(contentsOf: processedItems.flatMap { $0.picks })
+                sanitizedChildren.append(.taskList(isTight: isTight, items: processedItems.map(\.item)))
+                pickedNodes.append(contentsOf: processedItems.flatMap(\.picks))
             default:
                 sanitizedChildren.append(child)
             }
