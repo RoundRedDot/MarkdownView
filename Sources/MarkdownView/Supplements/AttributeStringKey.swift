@@ -11,4 +11,5 @@ extension NSAttributedString.Key {
     static let contextView: NSAttributedString.Key = .init("contextView")
     static let contextImage: NSAttributedString.Key = .init("contextImage")
     static let contextIdentifier: NSAttributedString.Key = .init("contextIdentifier")
+    static let mathLatexContent: NSAttributedString.Key = .init("mathLatexContent")
 }

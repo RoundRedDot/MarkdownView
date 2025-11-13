@@ -101,15 +101,6 @@ extension MarkdownInlineNode {
         case let .math(content, replacementIdentifier):
             if let item = context.rendered[replacementIdentifier], let image = item.image {
                 var imageSize = image.size
-                let lineHeight = theme.fonts.body.lineHeight
-
-                if imageSize.height > lineHeight, imageSize.height < lineHeight * 1.5 {
-                    // scale down for single-line equations
-                    let aspectRatio = imageSize.width / imageSize.height
-                    let scaledHeight = lineHeight
-                    let scaledWidth = scaledHeight * aspectRatio
-                    imageSize = CGSize(width: scaledWidth, height: scaledHeight)
-                }
 
                 let drawingCallback = LTXLineDrawingAction { context, line, lineOrigin in
                     let glyphRuns = CTLineGetGlyphRuns(line) as NSArray
@@ -147,14 +138,18 @@ extension MarkdownInlineNode {
                 }
                 let attachment = LTXAttachment.hold(attrString: .init(string: content))
                 attachment.size = imageSize
+                
+                let attributes: [NSAttributedString.Key: Any] = [
+                    LTXAttachmentAttributeName: attachment,
+                    LTXLineDrawingCallbackName: drawingCallback,
+                    kCTRunDelegateAttributeName as NSAttributedString.Key: attachment.runDelegate,
+                    .contextIdentifier: replacementIdentifier,
+                    .mathLatexContent: item.text, // Store LaTeX content for on-demand rendering
+                ]
+                
                 return NSAttributedString(
                     string: LTXReplacementText,
-                    attributes: [
-                        LTXAttachmentAttributeName: attachment,
-                        LTXLineDrawingCallbackName: drawingCallback,
-                        kCTRunDelegateAttributeName as NSAttributedString.Key: attachment.runDelegate,
-                        .contextIdentifier: replacementIdentifier,
-                    ]
+                    attributes: attributes
                 )
             } else {
                 return NSAttributedString(
