@@ -99,6 +99,9 @@ extension MarkdownInlineNode {
                 ]
             )
         case let .math(content, replacementIdentifier):
+            // Get LaTeX content from rendered context or fallback to raw content
+            let latexContent = context.rendered[replacementIdentifier]?.text ?? content
+            
             if let item = context.rendered[replacementIdentifier], let image = item.image {
                 var imageSize = image.size
 
@@ -136,7 +139,7 @@ extension MarkdownInlineNode {
                     image.draw(in: rect)
                     context.restoreGState()
                 }
-                let attachment = LTXAttachment.hold(attrString: .init(string: content))
+                let attachment = LTXAttachment.hold(attrString: .init(string: latexContent))
                 attachment.size = imageSize
                 
                 let attributes: [NSAttributedString.Key: Any] = [
@@ -144,7 +147,7 @@ extension MarkdownInlineNode {
                     LTXLineDrawingCallbackName: drawingCallback,
                     kCTRunDelegateAttributeName as NSAttributedString.Key: attachment.runDelegate,
                     .contextIdentifier: replacementIdentifier,
-                    .mathLatexContent: item.text, // Store LaTeX content for on-demand rendering
+                    .mathLatexContent: latexContent, // Store LaTeX content for on-demand rendering
                 ]
                 
                 return NSAttributedString(
@@ -152,8 +155,9 @@ extension MarkdownInlineNode {
                     attributes: attributes
                 )
             } else {
+                // Fallback: render failed, show original LaTeX as inline code
                 return NSAttributedString(
-                    string: content,
+                    string: latexContent,
                     attributes: [
                         .font: theme.fonts.codeInline,
                         .foregroundColor: theme.colors.code,

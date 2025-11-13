@@ -32,13 +32,9 @@ extension MarkdownTextView {
             try pngData.write(to: tempURL)
             
             let previewItem = MathPreviewItem(url: tempURL, title: "Math Equation")
-            let dataSource = MathPreviewDataSource(item: previewItem) {
+            let controller = MathPreviewController(item: previewItem) {
                 try? FileManager.default.removeItem(at: tempURL)
             }
-            
-            let controller = QLPreviewController()
-            controller.dataSource = dataSource
-            objc_setAssociatedObject(controller, "dataSource", dataSource, .OBJC_ASSOCIATION_RETAIN)
             
             window?.rootViewController?.present(controller, animated: true)
         } catch {
@@ -48,6 +44,21 @@ extension MarkdownTextView {
 }
 
 // MARK: - QuickLook Support
+
+private class MathPreviewController: QLPreviewController {
+    private let myDataSource: MathPreviewDataSource
+    
+    init(item: MathPreviewItem, cleanup: @escaping () -> Void) {
+        self.myDataSource = MathPreviewDataSource(item: item, cleanup: cleanup)
+        super.init(nibName: nil, bundle: nil)
+        self.dataSource = myDataSource
+    }
+    
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
 
 private class MathPreviewItem: NSObject, QLPreviewItem {
     let previewItemURL: URL?
