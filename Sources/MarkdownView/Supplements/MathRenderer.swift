@@ -32,7 +32,8 @@ public enum MathRenderer {
         fontSize: CGFloat = 16,
         textColor: UIColor = .black
     ) -> UIImage? {
-        if let cachedImage = renderCache.value(forKey: latex) {
+        let cacheKey = renderCacheKey(for: latex, fontSize: fontSize, textColor: textColor)
+        if let cachedImage = renderCache.value(forKey: cacheKey) {
             return cachedImage
         }
 
@@ -49,8 +50,12 @@ public enum MathRenderer {
             print("[!] MathRenderer failed to render image for content: \(latex) \(error?.localizedDescription ?? "?")")
             return nil
         }
-        renderCache.setValue(image, forKey: latex)
+        renderCache.setValue(image, forKey: cacheKey)
         return image
+    }
+
+    private static func renderCacheKey(for latex: String, fontSize: CGFloat, textColor: UIColor) -> String {
+        "\(latex)#\(fontSize)#\(textColor.description)"
     }
 }
 
