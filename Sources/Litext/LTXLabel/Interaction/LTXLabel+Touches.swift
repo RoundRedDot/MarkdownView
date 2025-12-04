@@ -218,18 +218,14 @@ extension LTXLabel {
 
         let menuController = UIMenuController.shared
 
-        var menuItems: [UIMenuItem] = []
-        menuItems.append(UIMenuItem(
-            title: LocalizedText.copy,
-            action: #selector(copyMenuItemTapped)
-        ))
-        if selectionRange != selectAllRange() {
-            menuItems.append(UIMenuItem(
-                title: LocalizedText.selectAll,
-                action: #selector(selectAllTapped)
-            ))
-        }
-        menuController.menuItems = menuItems
+        let items = LTXLabelMenuItem
+            .textSelectionMenu()
+            .compactMap { item -> UIMenuItem? in
+                guard let selector = item.action else { return nil }
+                guard canPerformAction(selector, withSender: nil) else { return nil }
+                return UIMenuItem(title: item.title, action: selector)
+            }
+        menuController.menuItems = items
 
         menuOwnerIdentifier = id
         menuController.showMenu(
@@ -243,7 +239,7 @@ extension LTXLabel {
         UIMenuController.shared.hideMenu()
     }
 
-    @objc private func copyMenuItemTapped() {
+    @objc func copyMenuItemTapped() {
         let copiedText = copySelectedText()
         if copiedText.length <= 0 {
             _ = copyFromSubviewsRecursively()
@@ -251,11 +247,18 @@ extension LTXLabel {
         clearSelection()
     }
 
-    @objc private func selectAllTapped() {
+    @objc func selectAllTapped() {
         selectAllText()
         DispatchQueue.main.async {
             self.showSelectionMenuController()
         }
+    }
+
+    @objc func shareMenuItemTapped() {
+        guard let text = selectedPlainText(), !text.isEmpty else { return }
+        let activityController = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        activityController.popoverPresentationController?.sourceView = self
+        parentViewController?.present(activityController, animated: true)
     }
 
     @objc private func copyKeyCommand() {
@@ -271,16 +274,19 @@ extension LTXLabel {
 
     override public func canPerformAction(
         _ action: Selector,
-        withSender sender: Any?
+        withSender _: Any?
     ) -> Bool {
         if action == #selector(copyMenuItemTapped) {
             return selectionRange != nil
                 && selectionRange!.length > 0
         }
-        return super.canPerformAction(
-            action,
-            withSender: sender
-        )
+        if action == #selector(selectAllTapped) {
+            return selectionRange != selectAllRange()
+        }
+        if action == #selector(shareMenuItemTapped) {
+            return (selectedPlainText() ?? "").isEmpty == false
+        }
+        return false
     }
 
     private func copyFromSubviewsRecursively() -> Bool {

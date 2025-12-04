@@ -182,6 +182,7 @@ extension TextBuilder {
                 }
 
                 if tableView.superview != view { view.addSubview(tableView) }
+                tableView.linkHandler = view.linkHandler
                 let lineBoundingBox = lineBoundingBox(line, lineOrigin: lineOrigin)
                 let intrinsicContentSize = tableView.intrinsicContentSize
                 var leftIndent: CGFloat = 0

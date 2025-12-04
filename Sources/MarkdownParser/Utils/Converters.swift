@@ -133,9 +133,9 @@ extension MarkdownInlineNode {
 }
 
 extension UnsafeNode {
-    var nodeType: NodeType {
+    var nodeType: MarkdownNodeType {
         let typeString = String(cString: cmark_node_get_type_string(self))
-        guard let nodeType = NodeType(rawValue: typeString) else {
+        guard let nodeType = MarkdownNodeType(rawValue: typeString) else {
             fatalError("Unknown node type '\(typeString)' found.")
         }
         return nodeType
@@ -195,7 +195,7 @@ extension UnsafeNode {
     }
 }
 
-enum NodeType: String {
+public enum MarkdownNodeType: String {
     case document
     case blockquote = "block_quote"
     case list

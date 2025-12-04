@@ -14,18 +14,15 @@ extension LTXLabel: UIContextMenuInteractionDelegate {
     ) -> UIContextMenuConfiguration? {
         #if targetEnvironment(macCatalyst)
             guard selectionRange != nil else { return nil }
-            var menuItems: [UIMenuElement] = [
-                UIAction(title: LocalizedText.copy, image: nil) { _ in
-                    self.copySelectedText()
-                },
-            ]
-            if selectionRange != selectAllRange() {
-                menuItems.append(
-                    UIAction(title: LocalizedText.selectAll, image: nil) { _ in
-                        self.selectAllText()
+            let menuItems: [UIMenuElement] = LTXLabelMenuItem
+                .textSelectionMenu()
+                .compactMap { item -> UIAction? in
+                    guard let selector = item.action else { return nil }
+                    guard self.canPerformAction(selector, withSender: nil) else { return nil }
+                    return UIAction(title: item.title, image: item.image) { _ in
+                        self.perform(selector)
                     }
-                )
-            }
+                }
             return .init(
                 identifier: nil,
                 previewProvider: nil
