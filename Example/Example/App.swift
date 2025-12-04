@@ -74,14 +74,43 @@ final class ContentController: UIViewController {
             object: nil
         )
 
+        let testDocument = """
+        大咖老师凯迪拉克说了打卡[^999999](www.baidu.com)卡`就开始`
+        [百度](www.baidu.com)
+        """
+
+//        let testDocument = """
+//        `这个测试待办`
+//        """
+//
+//        let testDocument = """
+//        \\( x + 5 = 12 \\)
+//            *   **思路**：为了让左边只剩下 \\(x\\)，我们需要把 "+5" 去掉。去掉 "+5" 的方法就是减去5。
+//            *   **解**：等式左边 \\(x+5-5\\)，右边也要跟着 \\(12-5\\)。所以 \\(x = 7\\)。
+//            *   **答案**：\\( x = \\underline{7} \\)
+//        """
+
         let parser = MarkdownParser()
         let result = parser.parse(testDocument)
         let date = Date()
+        var theme = MarkdownTheme.default
+        print("theme: \(theme)")
+        theme.colors.footnote = UIColor(fromHexString: "#343434")!
+        theme.colors.footnoteBackground = UIColor(fromHexString: "#E1E1E1")!
+        markdownTextView.theme = theme
         markdownTextView.setMarkdownManually(.init(parserResult: result, theme: .default))
         view.setNeedsLayout()
         view.layoutIfNeeded()
         let time = Date().timeIntervalSince(date)
         measureLabel.text = String(format: "Time: %.4f ms", time * 1000)
+
+        markdownTextView.linkHandler = { payload, range, point in
+            print("点击: \(payload), range: \(range), point: \(point)")
+        }
+
+        markdownTextView.codePreviewHandler = { string, attributedString in
+            print("点击: \(string), attributedString: \(attributedString)")
+        }
     }
 
     private var streamDocument = ""

@@ -133,7 +133,26 @@ extension MarkdownParser {
             }
             return [.taskList(isTight: isTight, items: processedItems)]
         case let .paragraph(content):
-            let processedContent = finalizeInlineMathInNodes(content, mathContext: mathContext)
+            let newContent = content.compactMap { node in
+                switch node {
+                case .link(let destination, let children):
+                    if let child = children.first {
+                        switch child {
+                        case .text(let text):
+                            if text.hasPrefix("^") {
+                                return MarkdownInlineNode.footnote(destination: destination, children: [
+                                    .text(String(text.dropFirst()))
+                                ])
+                            }
+                        default: break
+                        }
+                    }
+                    return node
+                default:
+                    return node
+                }
+            }
+            let processedContent = finalizeInlineMathInNodes(newContent, mathContext: mathContext)
             return [.paragraph(content: processedContent)]
         case let .table(columnAlignments, rows):
             let processedRows = rows.map { row in

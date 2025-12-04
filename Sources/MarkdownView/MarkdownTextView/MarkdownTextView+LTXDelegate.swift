@@ -44,19 +44,19 @@ extension MarkdownTextView: LTXLabelDelegate {
         guard let highlightRegion = region else {
             return
         }
-        
-        // Check if this is a LaTeX formula - render on demand
-        if let latexContent = highlightRegion.attributes[.mathLatexContent] as? String {
-            presentMathPreview(for: latexContent, theme: theme)
-            return
-        }
-        
+
         let link = highlightRegion.attributes[NSAttributedString.Key.link]
         let range = highlightRegion.stringRange
         if let url = link as? URL {
             linkHandler?(.url(url), range, location)
         } else if let string = link as? String {
             linkHandler?(.string(string), range, location)
+        } else {
+            // Check if this is a LaTeX formula - render on demand
+            if let latexContent = highlightRegion.attributes[.mathLatexContent] as? String {
+                presentMathPreview(for: latexContent, theme: theme)
+                return
+            }
         }
     }
 }

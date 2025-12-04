@@ -46,6 +46,9 @@ public struct MarkdownTheme: Equatable {
                 ?? .systemOrange
         public var code = UIColor.label
         public var codeBackground = UIColor.gray.withAlphaComponent(0.25)
+        // 增加脚注文字颜色和背景色
+        public var footnote = UIColor.black
+        public var footnoteBackground = UIColor.gray.withAlphaComponent(0.35)
     }
 
     public var colors: Colors = .init()

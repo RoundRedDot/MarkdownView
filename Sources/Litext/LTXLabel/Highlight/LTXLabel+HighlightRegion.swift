@@ -47,6 +47,12 @@ extension LTXLabel {
 
         activeHighlightRegion = highlightRegion
 
+        let attachment = highlightRegion.attributes[.ltxAttachment]
+        let link = highlightRegion.attributes[.link]
+        if attachment != nil, link != nil { // 引用脚注禁用长按高亮
+            return
+        }
+
         let highlightPath = LTXPlatformBezierPath()
         for boxedRect in highlightRegion.rects {
             let rect = boxedRect.cgRectValue

@@ -165,6 +165,66 @@ extension MarkdownInlineNode {
                     ]
                 )
             }
+        case let .footnote(destination, children):
+            let ans = NSMutableAttributedString()
+            children.map { $0.render(theme: theme, context: context, viewProvider: viewProvider) }.forEach { ans.append($0) }
+            ans.addAttributes(
+                [
+                    .link: destination,
+                    .foregroundColor: theme.colors.footnote
+                ],
+                range: NSRange(location: 0, length: ans.length)
+            )
+            let padding = UIEdgeInsets(top: 1, left: 6, bottom: 1, right: 6)
+            let image = ans.drawToImage(padding: padding, backgroundColor: theme.colors.footnoteBackground, minSize: CGSize(width: 22, height: 22))
+            let imageSize = image.size
+            let replacementIdentifier = destination
+            let drawingCallback = LTXLineDrawingAction { context, line, lineOrigin in
+                let glyphRuns = CTLineGetGlyphRuns(line) as NSArray
+                var runOffsetX: CGFloat = 0
+                for i in 0 ..< glyphRuns.count {
+                    let run = glyphRuns[i] as! CTRun
+                    let attributes = CTRunGetAttributes(run) as! [NSAttributedString.Key: Any]
+                    if attributes[.contextIdentifier] as? String == replacementIdentifier {
+                        break
+                    }
+                    runOffsetX += CTRunGetTypographicBounds(run, CFRange(location: 0, length: 0), nil, nil, nil)
+                }
+
+                var ascent: CGFloat = 0
+                var descent: CGFloat = 0
+                CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+                let x = lineOrigin.x + runOffsetX
+                let y = lineOrigin.y - descent - padding.top
+                let rect = CGRect(
+                    x: x,
+                    y: y,
+                    width: imageSize.width,
+                    height: imageSize.height
+                )
+
+                context.saveGState()
+                context.translateBy(x: 0, y: rect.origin.y + rect.size.height)
+                context.scaleBy(x: 1, y: -1)
+                context.translateBy(x: 0, y: -rect.origin.y)
+                image.draw(in: rect)
+                context.restoreGState()
+            }
+            let attachment = LTXAttachment.hold(attrString: .init(string: destination))
+            attachment.size = imageSize
+            let attributes: [NSAttributedString.Key: Any] = [
+                LTXAttachmentAttributeName: attachment,
+                LTXLineDrawingCallbackName: drawingCallback,
+                kCTRunDelegateAttributeName as NSAttributedString.Key: attachment.runDelegate,
+                .contextIdentifier: replacementIdentifier,
+                .mathLatexContent: destination, // Store LaTeX content for on-demand rendering
+                .link: destination
+            ]
+
+            return NSAttributedString(
+                string: LTXReplacementText,
+                attributes: attributes
+            )
         }
     }
 }

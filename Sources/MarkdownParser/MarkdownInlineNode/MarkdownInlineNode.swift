@@ -12,6 +12,7 @@ public enum MarkdownInlineNode: Hashable, Sendable, Equatable, Codable {
     case link(destination: String, children: [MarkdownInlineNode])
     case image(source: String, children: [MarkdownInlineNode])
     case math(content: String, replacementIdentifier: String)
+    case footnote(destination: String, children: [MarkdownInlineNode])
 }
 
 public extension MarkdownInlineNode {
