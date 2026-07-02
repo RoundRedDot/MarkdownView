@@ -81,13 +81,15 @@ extension MarkdownInlineNode {
         case let .link(destination, children):
             let ans = NSMutableAttributedString()
             children.map { $0.render(theme: theme, context: context, viewProvider: viewProvider) }.forEach { ans.append($0) }
-            ans.addAttributes(
-                [
-                    .link: destination,
-                    .foregroundColor: theme.colors.highlight,
-                ],
-                range: NSRange(location: 0, length: ans.length)
-            )
+            var attributes: [NSAttributedString.Key: Any] = [
+                .link: destination,
+                .foregroundColor: theme.colors.highlight,
+            ]
+            if theme.showsLinkUnderline {
+                attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                attributes[.underlineColor] = theme.colors.link
+            }
+            ans.addAttributes(attributes, range: NSRange(location: 0, length: ans.length))
             return ans
         case let .image(source, _): // children => alternative text can be ignored?
             return NSAttributedString(

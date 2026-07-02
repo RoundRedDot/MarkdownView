@@ -49,9 +49,12 @@ public struct MarkdownTheme: Equatable {
         // 增加脚注文字颜色和背景色
         public var footnote = UIColor.black
         public var footnoteBackground = UIColor.gray.withAlphaComponent(0.35)
+        // 链接下划线颜色
+        public var link = UIColor.blue
     }
 
     public var colors: Colors = .init()
+    public var showsLinkUnderline = true
 
     public struct Spacings: Equatable {
         public var final: CGFloat = 16

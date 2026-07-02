@@ -97,6 +97,8 @@ final class ContentController: UIViewController {
         print("theme: \(theme)")
         theme.colors.footnote = UIColor(fromHexString: "#343434")!
         theme.colors.footnoteBackground = UIColor(fromHexString: "#E1E1E1")!
+        theme.colors.link = UIColor.red
+        theme.showsLinkUnderline = true
         markdownTextView.theme = theme
         markdownTextView.setMarkdownManually(.init(parserResult: result, theme: .default))
         view.setNeedsLayout()
