@@ -12,7 +12,6 @@ final class TableView: UIView {
     // MARK: - Constants
 
     private let tableViewPadding: CGFloat = 2
-    private let cellPadding: CGFloat = 10
     private let maximumCellWidth: CGFloat = 200
 
     // MARK: - UI Components
@@ -118,12 +117,13 @@ final class TableView: UIView {
         for row in 0 ..< numberOfRows {
             for column in 0 ..< numberOfColumns {
                 let index = row * numberOfColumns + column
-                let cellSize = cellManager.cellSizes[index]
+                var cellSize = cellManager.cellSizes[index]
+                cellSize.height = heights[row]
                 let cell = cellManager.cells[index]
                 let idealCellSize = cell.intrinsicContentSize
 
                 cell.frame = .init(
-                    x: x + cellPadding + tableViewPadding,
+                    x: x + theme.table.cellPadding + tableViewPadding,
                     y: y + (cellSize.height - idealCellSize.height) / 2 + tableViewPadding,
                     width: ceil(idealCellSize.width),
                     height: ceil(idealCellSize.height)
@@ -158,12 +158,12 @@ final class TableView: UIView {
         cellManager.configureCells(
             for: contents,
             in: scrollView,
-            cellPadding: cellPadding,
+            cellPadding: theme.table.cellPadding,
             maximumCellWidth: maximumCellWidth
         )
 
         widths = cellManager.widths
-        heights = cellManager.heights
+        heights = cellManager.heights.map { max($0, theme.table.minimumRowHeight) }
 
         gridView.padding = tableViewPadding
         gridView.update(widths: widths, heights: heights)

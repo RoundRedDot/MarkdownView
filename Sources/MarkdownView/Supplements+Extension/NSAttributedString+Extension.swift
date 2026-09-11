@@ -18,6 +18,7 @@ extension NSAttributedString {
             padding: UIEdgeInsets = .zero,
             backgroundColor: UIColor? = .clear,
             minSize: CGSize = .zero,
+            cornerRadius: CGFloat? = nil,
             scale: CGFloat = UIScreen.main.scale
         ) -> UIImage {
 
@@ -48,7 +49,7 @@ extension NSAttributedString {
                 // 背景
                 if let bg = backgroundColor {
                     let rect = CGRect(origin: .zero, size: finalSize)
-                    let path = UIBezierPath(roundedRect: rect, cornerRadius: finalSize.height / 2.0)
+                    let path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius ?? finalSize.height / 2.0)
                     cg.addPath(path.cgPath)
                     cg.setFillColor(bg.cgColor)
                     cg.drawPath(using: .fill)

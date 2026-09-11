@@ -26,7 +26,7 @@ private func kNumberCircleImage(_ number: Int) -> UIImage {
 }
 
 private func kNumberTextImage(_ number: Int, theme: MarkdownTheme) -> UIImage {
-    let font = theme.fonts.body
+    let font = theme.fonts.listNumber ?? theme.fonts.body
     let numberText = "\(number)."
     
     // 计算文本宽度
@@ -38,8 +38,8 @@ private func kNumberTextImage(_ number: Int, theme: MarkdownTheme) -> UIImage {
     
     // TODO: 宽度不够会被截断
     let height = font.pointSize
-    let maxWidth: CGFloat = 24
-    let x: CGFloat = maxWidth - textSize.width - 2 // 右对齐时，x坐标为宽度减去文本宽度
+    let maxWidth: CGFloat = theme.sizes.listIndent
+    let x: CGFloat = maxWidth - textSize.width - theme.sizes.listNumberGap // 右对齐，右缘留 gap
     let renderer = UIGraphicsImageRenderer(size: CGSize(width: maxWidth, height: height))
     let image = renderer.image { context in
         let textRect = CGRect(
@@ -104,8 +104,7 @@ extension TextBuilder {
             }
             .withNumberedDrawing { context, line, lineOrigin, num in
                 let rect = lineBoundingBox(line, lineOrigin: lineOrigin)
-                    .offsetBy(dx: -16, dy: 0)
-                    .offsetBy(dx: -8, dy: 0)
+                    .offsetBy(dx: -theme.sizes.listIndent, dy: 0)
                 // let image = kNumberCircleImage(num)
                 let image = kNumberTextImage(num, theme: theme)
                 guard let cgImage = image.cgImage else { return }
@@ -125,6 +124,46 @@ extension TextBuilder {
                 let rect = lineBoundingBox(line, lineOrigin: lineOrigin)
                     .offsetBy(dx: -16, dy: 0)
                     .offsetBy(dx: -8, dy: 0)
+                if let borderColor = theme.colors.checkboxBorder {
+                    // 自绘样式：圆角方框 + 勾选填充（与编辑器网页一致）
+                    let side = theme.sizes.checkbox
+                    let borderWidth = theme.sizes.checkboxBorderWidth
+                    let box = CGRect(x: rect.minX, y: rect.midY - side / 2, width: side, height: side)
+                    let path = CGPath(
+                        roundedRect: box.insetBy(dx: borderWidth / 2, dy: borderWidth / 2),
+                        cornerWidth: theme.sizes.checkboxCornerRadius,
+                        cornerHeight: theme.sizes.checkboxCornerRadius,
+                        transform: nil
+                    )
+                    context.saveGState()
+                    if isChecked {
+                        let fill = theme.colors.checkboxFill ?? borderColor
+                        context.setFillColor(fill.cgColor)
+                        context.addPath(CGPath(
+                            roundedRect: box,
+                            cornerWidth: theme.sizes.checkboxCornerRadius,
+                            cornerHeight: theme.sizes.checkboxCornerRadius,
+                            transform: nil
+                        ))
+                        context.fillPath()
+                        // 勾：CoreText 坐标系 y 向上
+                        context.setStrokeColor(theme.colors.checkboxCheck.cgColor)
+                        context.setLineWidth(borderWidth)
+                        context.setLineCap(.round)
+                        context.setLineJoin(.round)
+                        context.move(to: CGPoint(x: box.minX + side * 0.26, y: box.minY + side * 0.50))
+                        context.addLine(to: CGPoint(x: box.minX + side * 0.44, y: box.minY + side * 0.32))
+                        context.addLine(to: CGPoint(x: box.minX + side * 0.76, y: box.minY + side * 0.68))
+                        context.strokePath()
+                    } else {
+                        context.setStrokeColor(borderColor.cgColor)
+                        context.setLineWidth(borderWidth)
+                        context.addPath(path)
+                        context.strokePath()
+                    }
+                    context.restoreGState()
+                    return
+                }
                 let image = if isChecked { kCheckedBoxImage } else { kUncheckedBoxImage }
                 guard let cgImage = image.cgImage else { return }
                 let imageSize = image.size
@@ -205,14 +244,17 @@ extension TextBuilder {
                 let boundingBox = lineBoundingBox(line, lineOrigin: lineOrigin)
                 defer { blockquoteMarkingStorage = nil }
                 let quotingLineHeight: CGFloat = blockquoteMarkingStorage! - boundingBox.minY
+                let barWidth = theme.sizes.blockquoteBarWidth
                 let lineRect = CGRect(
                     x: 0,
                     y: blockquoteMarkingStorage! - quotingLineHeight,
-                    width: 4,
+                    width: barWidth,
                     height: quotingLineHeight
                 )
-                context.setFillColor(theme.colors.body.withAlphaComponent(0.1).cgColor)
-                let roundedPath = CGPath(roundedRect: lineRect, cornerWidth: 2, cornerHeight: 2, transform: nil)
+                let barColor = theme.colors.blockquoteBar ?? theme.colors.body.withAlphaComponent(0.1)
+                context.setFillColor(barColor.cgColor)
+                let radius = min(theme.sizes.blockquoteBarCornerRadius, barWidth / 2)
+                let roundedPath = CGPath(roundedRect: lineRect, cornerWidth: radius, cornerHeight: radius, transform: nil)
                 context.addPath(roundedPath)
                 context.fillPath()
             }

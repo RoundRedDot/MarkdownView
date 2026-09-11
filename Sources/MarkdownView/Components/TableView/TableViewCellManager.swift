@@ -122,13 +122,17 @@ final class TableViewCellManager {
         if let attributedText = cell.attributedText.mutableCopy() as? NSMutableAttributedString {
             let range = NSRange(location: 0, length: attributedText.length)
 
-            attributedText.enumerateAttribute(.font, in: range, options: []) {
-                value, subRange, _ in
-                if let existingFont = value as? UIFont {
-                    let boldFont = UIFont.boldSystemFont(ofSize: existingFont.pointSize)
-                    attributedText.addAttribute(.font, value: boldFont, range: subRange)
-                } else {
-                    attributedText.addAttribute(.font, value: theme.fonts.bold, range: subRange)
+            if let headerFont = theme.table.headerFont {
+                attributedText.addAttribute(.font, value: headerFont, range: range)
+            } else {
+                attributedText.enumerateAttribute(.font, in: range, options: []) {
+                    value, subRange, _ in
+                    if let existingFont = value as? UIFont {
+                        let boldFont = UIFont.boldSystemFont(ofSize: existingFont.pointSize)
+                        attributedText.addAttribute(.font, value: boldFont, range: subRange)
+                    } else {
+                        attributedText.addAttribute(.font, value: theme.fonts.bold, range: subRange)
+                    }
                 }
             }
 
@@ -146,6 +150,14 @@ final class TableViewCellManager {
                     attributedText.addAttribute(
                         .foregroundColor, value: theme.colors.body, range: subRange
                     )
+                }
+            }
+            if let cellFont = theme.table.cellFont {
+                // 只替换仍是正文字体的文字，保留加粗 / 代码等
+                attributedText.enumerateAttribute(.font, in: range, options: []) { value, subRange, _ in
+                    if let font = value as? UIFont, font == theme.fonts.body {
+                        attributedText.addAttribute(.font, value: cellFont, range: subRange)
+                    }
                 }
             }
 

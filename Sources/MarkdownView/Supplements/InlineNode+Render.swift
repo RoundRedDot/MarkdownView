@@ -44,6 +44,9 @@ extension MarkdownInlineNode {
                 .foregroundColor: theme.colors.body,
             ])
         case let .code(string), let .html(string):
+            if theme.sizes.inlineCodeCornerRadius > 0 {
+                return Self.renderInlineCodePill(string, theme: theme)
+            }
             let controlAttributes: [NSAttributedString.Key: Any] = [
                 .font: theme.fonts.codeInline,
                 .backgroundColor: theme.colors.codeBackground.withAlphaComponent(0.05),
@@ -228,5 +231,70 @@ extension MarkdownInlineNode {
                 attributes: attributes
             )
         }
+    }
+}
+
+
+// MARK: - Inline code as a rounded pill
+
+extension MarkdownInlineNode {
+    /// 行内代码按「文字 + 内边距 + 圆角底色」整体绘制成一张图，插入为附件。
+    /// CoreText 不会绘制 .backgroundColor，也不支持内边距 / 圆角，只能这样做才能和网页编辑器的样式一致。
+    /// 选中 / 复制时附件仍持有原始文字。
+    static func renderInlineCodePill(_ string: String, theme: MarkdownTheme) -> NSAttributedString {
+        let text = NSAttributedString(string: string, attributes: [
+            .font: theme.fonts.codeInline,
+            .foregroundColor: theme.colors.code,
+        ])
+        let padding = theme.sizes.inlineCodePadding
+        let image = text.drawToImage(
+            padding: padding,
+            backgroundColor: theme.colors.codeBackground,
+            cornerRadius: theme.sizes.inlineCodeCornerRadius
+        )
+        let imageSize = image.size
+        let replacementIdentifier = "inline-code-" + UUID().uuidString
+        let drawingCallback = LTXLineDrawingAction { context, line, lineOrigin in
+            let glyphRuns = CTLineGetGlyphRuns(line) as NSArray
+            var runOffsetX: CGFloat = 0
+            for i in 0 ..< glyphRuns.count {
+                let run = glyphRuns[i] as! CTRun
+                let attributes = CTRunGetAttributes(run) as! [NSAttributedString.Key: Any]
+                if attributes[.contextIdentifier] as? String == replacementIdentifier {
+                    break
+                }
+                runOffsetX += CTRunGetTypographicBounds(run, CFRange(location: 0, length: 0), nil, nil, nil)
+            }
+
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            let x = lineOrigin.x + runOffsetX
+            // 图片按行基线垂直居中：图片中心对齐正文 x-height 中心附近（基线 + (ascent - descent) / 2）
+            let centerY = lineOrigin.y + (ascent - descent) / 2
+            let rect = CGRect(
+                x: x,
+                y: centerY - imageSize.height / 2,
+                width: imageSize.width,
+                height: imageSize.height
+            )
+
+            context.saveGState()
+            context.translateBy(x: 0, y: rect.origin.y + rect.size.height)
+            context.scaleBy(x: 1, y: -1)
+            context.translateBy(x: 0, y: -rect.origin.y)
+            image.draw(in: rect)
+            context.restoreGState()
+        }
+        let attachment = LTXAttachment.hold(attrString: .init(string: string))
+        attachment.size = imageSize
+        let attributes: [NSAttributedString.Key: Any] = [
+            LTXAttachmentAttributeName: attachment,
+            LTXLineDrawingCallbackName: drawingCallback,
+            kCTRunDelegateAttributeName as NSAttributedString.Key: attachment.runDelegate,
+            .contextIdentifier: replacementIdentifier,
+            .font: theme.fonts.codeInline,
+        ]
+        return NSAttributedString(string: LTXReplacementText, attributes: attributes)
     }
 }

@@ -15,6 +15,7 @@ final class GridView: UIView {
     private var totalHeight: CGFloat = 0
 
     private lazy var shapeLayer: CAShapeLayer = .init()
+    private lazy var rowLineLayer: CAShapeLayer = .init()
     private lazy var headerBackgroundLayer: CAShapeLayer = .init()
     private lazy var backgroundLayer: CAShapeLayer = .init()
     private lazy var stripeLayer: CAShapeLayer = .init()
@@ -33,25 +34,36 @@ final class GridView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// 动态色要按当前 trait 解析，否则深色模式下 layer 拿到的还是浅色值
+    private func cg(_ color: UIColor) -> CGColor {
+        color.resolvedColor(with: traitCollection).cgColor
+    }
+
     private func setupView() {
         // background layer
-        backgroundLayer.fillColor = theme.table.cellBackgroundColor.cgColor
+        backgroundLayer.fillColor = cg(theme.table.cellBackgroundColor)
         backgroundLayer.strokeColor = UIColor.clear.cgColor
         backgroundLayer.lineWidth = 0
         layer.addSublayer(backgroundLayer)
 
         // stripe layer
-        stripeLayer.fillColor = theme.table.stripeCellBackgroundColor.cgColor
+        stripeLayer.fillColor = cg(theme.table.stripeCellBackgroundColor)
         layer.addSublayer(stripeLayer)
 
         // header background
-        headerBackgroundLayer.fillColor = theme.table.headerBackgroundColor.cgColor
-        stripeLayer.fillColor = theme.table.stripeCellBackgroundColor.cgColor
+        headerBackgroundLayer.fillColor = cg(theme.table.headerBackgroundColor)
+        stripeLayer.fillColor = cg(theme.table.stripeCellBackgroundColor)
         layer.addSublayer(headerBackgroundLayer)
+
+        // row separators（可与外框 / 列线不同色）
+        rowLineLayer.lineWidth = theme.table.borderWidth
+        rowLineLayer.strokeColor = cg((theme.table.rowSeparatorColor ?? theme.table.borderColor))
+        rowLineLayer.fillColor = UIColor.clear.cgColor
+        layer.addSublayer(rowLineLayer)
 
         // borders
         shapeLayer.lineWidth = theme.table.borderWidth
-        shapeLayer.strokeColor = theme.table.borderColor.cgColor
+        shapeLayer.strokeColor = cg(theme.table.borderColor)
         shapeLayer.fillColor = UIColor.clear.cgColor
         layer.addSublayer(shapeLayer)
 
@@ -65,19 +77,22 @@ final class GridView: UIView {
     }
 
     private func updateThemeColors() {
-        backgroundLayer.fillColor = theme.table.cellBackgroundColor.cgColor
+        backgroundLayer.fillColor = cg(theme.table.cellBackgroundColor)
         backgroundLayer.strokeColor = UIColor.clear.cgColor
         backgroundLayer.lineWidth = 0
-        stripeLayer.fillColor = theme.table.stripeCellBackgroundColor.cgColor
-        shapeLayer.strokeColor = theme.table.borderColor.cgColor
+        stripeLayer.fillColor = cg(theme.table.stripeCellBackgroundColor)
+        shapeLayer.strokeColor = cg(theme.table.borderColor)
         shapeLayer.lineWidth = theme.table.borderWidth
-        headerBackgroundLayer.fillColor = theme.table.headerBackgroundColor.cgColor
+        rowLineLayer.strokeColor = cg((theme.table.rowSeparatorColor ?? theme.table.borderColor))
+        rowLineLayer.lineWidth = theme.table.borderWidth
+        headerBackgroundLayer.fillColor = cg(theme.table.headerBackgroundColor)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         backgroundLayer.frame = bounds
         shapeLayer.frame = bounds
+        rowLineLayer.frame = bounds
         headerBackgroundLayer.frame = bounds
         stripeLayer.frame = bounds
         drawBackground()
@@ -175,17 +190,19 @@ final class GridView: UIView {
             }
         }
 
-        // Draw horizontal lines
+        shapeLayer.path = path.cgPath
+
+        // Draw horizontal lines（单独一层，颜色可独立配置）
+        let rowPath = UIBezierPath()
         var y: CGFloat = padding
         for (index, height) in heights.enumerated() {
             if index < heights.count - 1 {
                 y += height
-                path.move(to: .init(x: padding + halfLineWidth, y: y))
-                path.addLine(to: .init(x: totalWidth + padding - halfLineWidth, y: y))
+                rowPath.move(to: .init(x: padding + halfLineWidth, y: y))
+                rowPath.addLine(to: .init(x: totalWidth + padding - halfLineWidth, y: y))
             }
         }
-
-        shapeLayer.path = path.cgPath
+        rowLineLayer.path = rowPath.cgPath
     }
 
     private func drawHeaderBackground() {

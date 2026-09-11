@@ -62,9 +62,9 @@ final class ListProcessor {
 
     private func renderListItem(_ item: ListItem, reduceLineSpacing: Bool = false, total _: Int) -> NSAttributedString {
         let paragraphStyle: NSMutableParagraphStyle = .init()
-        paragraphStyle.paragraphSpacing = reduceLineSpacing ? 8 : 16
-        paragraphStyle.lineSpacing = 4
-        let indent = CGFloat(item.depth + 1) * 24
+        paragraphStyle.paragraphSpacing = reduceLineSpacing ? theme.spacings.listItem : theme.spacings.listEnd
+        paragraphStyle.lineSpacing = theme.spacings.line
+        let indent = CGFloat(item.depth + 1) * theme.sizes.listIndent
         paragraphStyle.firstLineHeadIndent = indent
         paragraphStyle.headIndent = indent
 

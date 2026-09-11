@@ -40,12 +40,28 @@ final class BlockProcessor {
         self.blockquoteDrawing = blockquoteDrawing
     }
 
-    func processHeading(level _: Int, contents: [MarkdownInlineNode]) -> NSAttributedString {
-        let font: UIFont = theme.fonts.title
+    func processHeading(level: Int, contents: [MarkdownInlineNode]) -> NSAttributedString {
+        let font: UIFont
+        let spacingBefore: CGFloat
+        let spacingAfter: CGFloat
+        switch level {
+        case 1:
+            font = theme.fonts.heading1 ?? theme.fonts.title
+            spacingBefore = theme.spacings.heading1Before
+            spacingAfter = theme.spacings.heading1After
+        case 2:
+            font = theme.fonts.heading2 ?? theme.fonts.title
+            spacingBefore = theme.spacings.heading1Before
+            spacingAfter = theme.spacings.heading1After
+        default:
+            font = theme.fonts.heading3 ?? theme.fonts.title
+            spacingBefore = theme.spacings.headingBefore
+            spacingAfter = theme.spacings.headingAfter
+        }
 
         return buildWithParagraphSync { paragraph in
-            paragraph.paragraphSpacing = 16
-            paragraph.paragraphSpacingBefore = 16
+            paragraph.paragraphSpacing = spacingAfter
+            paragraph.paragraphSpacingBefore = spacingBefore
         } content: {
             let string = contents.render(theme: theme, context: context, viewProvider: viewProvider)
             string.addAttributes(
@@ -58,8 +74,8 @@ final class BlockProcessor {
 
     func processParagraph(contents: [MarkdownInlineNode]) -> NSAttributedString {
         buildWithParagraphSync { paragraph in
-            paragraph.paragraphSpacing = 16
-            paragraph.lineSpacing = 4
+            paragraph.paragraphSpacing = theme.spacings.paragraph
+            paragraph.lineSpacing = theme.spacings.line
         } content: {
             let rendered = contents.render(theme: theme, context: context, viewProvider: viewProvider)
             if rendered.length == 0 {
@@ -114,11 +130,11 @@ final class BlockProcessor {
         let result = NSMutableAttributedString()
 
         let baseParagraphStyle = NSMutableParagraphStyle()
-        baseParagraphStyle.firstLineHeadIndent = 16
-        baseParagraphStyle.headIndent = 16
+        baseParagraphStyle.firstLineHeadIndent = theme.sizes.blockquoteIndent
+        baseParagraphStyle.headIndent = theme.sizes.blockquoteIndent
         baseParagraphStyle.tailIndent = -4
-        baseParagraphStyle.paragraphSpacing = 8
-        baseParagraphStyle.lineSpacing = 4
+        baseParagraphStyle.paragraphSpacing = theme.spacings.blockquoteParagraph
+        baseParagraphStyle.lineSpacing = theme.spacings.line
 
         for child in children {
             guard case let .paragraph(content) = child else {
@@ -126,6 +142,14 @@ final class BlockProcessor {
                 continue
             }
             let paragraphContent = content.render(theme: theme, context: context, viewProvider: viewProvider)
+            if let quoteColor = theme.colors.blockquoteText {
+                // 只覆盖仍是正文色的文字，保留链接 / 代码等自带颜色
+                paragraphContent.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: paragraphContent.length)) { value, range, _ in
+                    if let color = value as? UIColor, color == theme.colors.body {
+                        paragraphContent.addAttribute(.foregroundColor, value: quoteColor, range: range)
+                    }
+                }
+            }
             result.append(paragraphContent)
         }
 
@@ -164,6 +188,8 @@ final class BlockProcessor {
 
     func processTable(rows: [RawTableRow]) -> (NSAttributedString, TableView) {
         let tableView = viewProvider.acquireTableView()
+        // 复用的 TableView 一直停留在 .default 主题，必须先同步当前主题再填内容（影响表头底色、边框、字体、行高）
+        tableView.setTheme(theme)
         let contents = rows.map {
             $0.cells.map { rawCell in
                 rawCell.content.render(theme: theme, context: context, viewProvider: viewProvider)
@@ -199,8 +225,8 @@ extension BlockProcessor {
         content: () -> NSMutableAttributedString
     ) -> NSMutableAttributedString {
         var paragraphStyle: NSMutableParagraphStyle = .init()
-        paragraphStyle.paragraphSpacing = 16
-        paragraphStyle.lineSpacing = 4
+        paragraphStyle.paragraphSpacing = theme.spacings.paragraph
+        paragraphStyle.lineSpacing = theme.spacings.line
         modifier(&paragraphStyle)
 
         let string = content()

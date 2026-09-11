@@ -30,6 +30,13 @@ public struct MarkdownTheme: Equatable {
         public var largeTitle = UIFont.preferredFont(forTextStyle: .body).bold
         public var title = UIFont.preferredFont(forTextStyle: .body).bold
         public var footnote = UIFont.preferredFont(forTextStyle: .footnote)
+        /// 分级标题字体：nil 时回退到 `title`（保持旧行为，所有级别同一字号）。
+        /// heading1 → H1，heading2 → H2，heading3 → H3～H6。
+        public var heading1: UIFont?
+        public var heading2: UIFont?
+        public var heading3: UIFont?
+        /// 有序列表序号字体，nil 时用 `body`
+        public var listNumber: UIFont?
     }
 
     public var fonts: Fonts = .init()
@@ -51,6 +58,14 @@ public struct MarkdownTheme: Equatable {
         public var footnoteBackground = UIColor.gray.withAlphaComponent(0.35)
         // 链接下划线颜色
         public var link = UIColor.blue
+        /// 引用块文字颜色，nil 时用 body
+        public var blockquoteText: UIColor?
+        /// 引用块左侧竖条颜色，nil 时用 body 10%
+        public var blockquoteBar: UIColor?
+        /// 任务列表复选框边框 / 勾选填充色，nil 时沿用旧的图标画法
+        public var checkboxBorder: UIColor?
+        public var checkboxFill: UIColor?
+        public var checkboxCheck: UIColor = .white
     }
 
     public var colors: Colors = .init()
@@ -61,12 +76,43 @@ public struct MarkdownTheme: Equatable {
         public var general: CGFloat = 8
         public var list: CGFloat = 12
         public var cell: CGFloat = 32
+        /// 段落之间的间距（paragraphSpacing）
+        public var paragraph: CGFloat = 16
+        /// 段落内行距（lineSpacing）
+        public var line: CGFloat = 4
+        /// H1 / H2 上下间距
+        public var heading1Before: CGFloat = 16
+        public var heading1After: CGFloat = 16
+        /// H3～H6 上下间距
+        public var headingBefore: CGFloat = 16
+        public var headingAfter: CGFloat = 16
+        /// 列表项之间 / 列表结束后的间距
+        public var listItem: CGFloat = 8
+        public var listEnd: CGFloat = 16
+        /// 引用块内段落间距
+        public var blockquoteParagraph: CGFloat = 8
     }
 
     public var spacings: Spacings = .init()
 
     public struct Sizes: Equatable {
         public var bullet: CGFloat = 4
+        /// 列表每级缩进
+        public var listIndent: CGFloat = 24
+        /// 有序列表序号右缘与正文之间的间距
+        public var listNumberGap: CGFloat = 2
+        /// 任务复选框边长（配合 colors.checkboxBorder 使用自绘样式）
+        public var checkbox: CGFloat = 18
+        public var checkboxBorderWidth: CGFloat = 2
+        public var checkboxCornerRadius: CGFloat = 4
+        /// 行内代码：圆角 > 0 时按「文字 + 内边距 + 圆角底」整体绘制，否则只给文字加背景色
+        public var inlineCodeCornerRadius: CGFloat = 0
+        public var inlineCodePadding: UIEdgeInsets = .zero
+        /// 引用块竖条
+        public var blockquoteBarWidth: CGFloat = 4
+        public var blockquoteBarCornerRadius: CGFloat = 2
+        /// 引用块文字距左边缘（含竖条）
+        public var blockquoteIndent: CGFloat = 16
     }
 
     public var sizes: Sizes = .init()
@@ -78,6 +124,15 @@ public struct MarkdownTheme: Equatable {
         public var headerBackgroundColor = UIColor.systemGray6
         public var cellBackgroundColor = UIColor.clear
         public var stripeCellBackgroundColor = UIColor.systemGray.withAlphaComponent(0.03)
+        /// 行分隔线颜色，nil 时同 borderColor
+        public var rowSeparatorColor: UIColor?
+        /// 表头 / 数据单元格字体，nil 时沿用正文字体（表头加粗）
+        public var headerFont: UIFont?
+        public var cellFont: UIFont?
+        /// 单元格内边距（水平 / 垂直）
+        public var cellPadding: CGFloat = 10
+        /// 行最小高度
+        public var minimumRowHeight: CGFloat = 0
     }
 
     public var table: Table = .init()
