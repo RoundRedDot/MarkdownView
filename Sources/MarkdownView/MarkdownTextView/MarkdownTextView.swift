@@ -52,6 +52,14 @@ public final class MarkdownTextView: UIView {
         textView.frame = bounds
     }
 
+    /// 深浅色切换时重建：行内代码胶囊、脚注等是按当时 trait 烘焙的图片，不重建颜色会停留在切换前
+    override public func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection),
+              !document.blocks.isEmpty else { return }
+        autoreleasepool { updateTextExecute() }
+    }
+
     public func boundingSize(for width: CGFloat) -> CGSize {
         textView.preferredMaxLayoutWidth = width
         return textView.intrinsicContentSize

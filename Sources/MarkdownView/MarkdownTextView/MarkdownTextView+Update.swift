@@ -33,7 +33,12 @@ extension MarkdownTextView {
         viewProvider.reorderViews(matching: contextViews)
         contextViews.removeAll()
 
-        let artifacts = TextBuilder.build(view: self, viewProvider: viewProvider)
+        // 行内代码胶囊、脚注等会在这里被烘焙成图片，动态色必须按本视图的 trait 解析，
+        // 否则宿主用 overrideUserInterfaceStyle（如导出黑色模板强制 light）时会拿到系统当前深浅色的值
+        var artifacts: TextBuilder.BuildResult!
+        traitCollection.performAsCurrent {
+            artifacts = TextBuilder.build(view: self, viewProvider: viewProvider)
+        }
         textView.attributedText = artifacts.document
         contextViews = artifacts.subviews
 
