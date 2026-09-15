@@ -176,7 +176,6 @@ extension MarkdownInlineNode {
             ans.addAttributes(
                 [
                     .link: destination,
-                    .font: theme.fonts.footnote,
                     .foregroundColor: theme.colors.footnote
                 ],
                 range: NSRange(location: 0, length: ans.length)
