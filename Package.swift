@@ -36,5 +36,6 @@ let package = Package(
             .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
         ]),
         .target(name: "Litext"),
+        .testTarget(name: "MarkdownListTests", dependencies: ["MarkdownParser", "MarkdownView", "Litext"]),
     ]
 )

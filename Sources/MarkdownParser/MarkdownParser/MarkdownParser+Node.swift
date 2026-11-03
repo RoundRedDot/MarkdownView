@@ -16,7 +16,7 @@ extension MarkdownParser {
             return []
         }
         assert(root.pointee.type == CMARK_NODE_DOCUMENT.rawValue)
-        let nodeList = root.children.compactMap(MarkdownBlockNode.init(unsafeNode:))
+        let nodeList = root.children.flatMap(MarkdownBlockNode.makeBlocks(unsafeNode:))
 
         let reorderContext = SpecializeContext()
         for node in nodeList {
