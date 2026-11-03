@@ -12,11 +12,12 @@ final class ListRenderingTests: XCTestCase {
         ]
         let processor = ListProcessor(
             theme: .default,
-            viewProvider: .init(),
             context: .init(),
             bulletDrawing: { _, _, _, _ in },
             numberedDrawing: { _, _, _, _ in },
-            checkboxDrawing: { _, _, _, _ in }
+            checkboxDrawing: { _, _, _, _ in },
+            drawingOwner: nil,
+            inlineTextDecoration: nil
         )
         let plainItems = [RawListItem(children: children)]
         let outputs = [
@@ -27,7 +28,7 @@ final class ListRenderingTests: XCTestCase {
         ]
         for output in outputs {
             var markerCount = 0
-            output.enumerateAttribute(.ltxLineDrawingCallback, in: NSRange(location: 0, length: output.length)) { value, _, _ in
+            output.enumerateAttribute(.litextLineDrawingAction, in: NSRange(location: 0, length: output.length)) { value, _, _ in
                 if value != nil { markerCount += 1 }
             }
             XCTAssertEqual(markerCount, 1)

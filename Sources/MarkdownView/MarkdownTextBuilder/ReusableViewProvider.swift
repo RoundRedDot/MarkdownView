@@ -4,30 +4,42 @@
 //
 
 import DequeModule
-import UIKit
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 
+@MainActor
 private class ObjectPool<T: Equatable & Hashable> {
     private let factory: () -> T
-    fileprivate lazy var objects: Deque<T> = .init()
+    private lazy var objects: Deque<T> = .init()
 
     init(_ factory: @escaping () -> T) {
         self.factory = factory
     }
 
-    open func acquire() -> T {
+    func acquire() -> T {
         if let object = objects.popFirst() {
-            return object
+            object
         } else {
-            let object = factory()
-            return object
+            factory()
         }
     }
 
-    open func stash(_ object: T) {
+    func stash(_ object: T) {
         objects.append(object)
     }
 
-    open func reorder(matching sequence: [T]) {
+    /// Takes `object` out of the pool, so nothing else can acquire it.
+    /// Returns whether it was there to take.
+    func withdraw(_ object: T) -> Bool {
+        guard let index = objects.firstIndex(where: { $0 == object }) else { return false }
+        objects.remove(at: index)
+        return true
+    }
+
+    func reorder(matching sequence: [T]) {
         var current = Set(objects)
         objects.removeAll()
         for content in sequence where current.contains(content) {
@@ -40,41 +52,17 @@ private class ObjectPool<T: Equatable & Hashable> {
     }
 }
 
-private class ViewBox<T: UIView>: ObjectPool<T> {
-    override func acquire() -> T {
-        super.acquire()
-    }
-
-    override func stash(_ item: T) {
-        super.stash(item)
-    }
-}
-
+@MainActor
 public final class ReusableViewProvider {
-    private let codeViewPool: ViewBox<CodeView> = .init {
-        CodeView()
+    private let codeViewPool: ObjectPool<CodeView> = .init {
+        CodeView(frame: .zero)
     }
 
-    private let tableViewPool: ViewBox<TableView> = .init {
-        TableView()
+    private let tableViewPool: ObjectPool<TableView> = .init {
+        TableView(frame: .zero)
     }
-
-    private let lock = NSLock()
 
     public init() {}
-
-    func lockPool() {
-        lock.lock()
-    }
-
-    func unlockPool() {
-        lock.unlock()
-    }
-
-    func removeAll() {
-        codeViewPool.objects.removeAll()
-        tableViewPool.objects.removeAll()
-    }
 
     func acquireCodeView() -> CodeView {
         codeViewPool.acquire()
@@ -92,7 +80,22 @@ public final class ReusableViewProvider {
         tableViewPool.stash(tableView)
     }
 
-    func reorderViews(matching sequence: [UIView]) {
+    /// Takes a view a cached block brings back out of the pool before any
+    /// other block can acquire it.
+    ///
+    /// Returns false when the view is not in the pool — someone else holds
+    /// it — and the block then has to be built again rather than share it.
+    func withdraw(_ view: PlatformView) -> Bool {
+        if let codeView = view as? CodeView {
+            return codeViewPool.withdraw(codeView)
+        }
+        if let tableView = view as? TableView {
+            return tableViewPool.withdraw(tableView)
+        }
+        return false
+    }
+
+    func reorderViews(matching sequence: [PlatformView]) {
         // we adjust the sequence of stashed views to match the order
         // afterwards when TextBuilder visit a node requesting new view
         // it will follow the order to avoid glitch

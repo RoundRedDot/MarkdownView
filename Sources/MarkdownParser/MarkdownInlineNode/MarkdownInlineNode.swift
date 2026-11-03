@@ -25,7 +25,7 @@ public extension MarkdownInlineNode {
                 children
             case let .strikethrough(children):
                 children
-            case let .link(_, children):
+            case let .link(_, children), let .footnote(_, children):
                 children
             case let .image(_, children):
                 children
@@ -44,6 +44,8 @@ public extension MarkdownInlineNode {
                 self = .strikethrough(children: newValue)
             case let .link(destination, _):
                 self = .link(destination: destination, children: newValue)
+            case let .footnote(destination, _):
+                self = .footnote(destination: destination, children: newValue)
             case let .image(source, _):
                 self = .image(source: source, children: newValue)
             default:

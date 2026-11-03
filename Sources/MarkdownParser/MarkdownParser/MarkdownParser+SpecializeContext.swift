@@ -30,24 +30,24 @@ private extension MarkdownParser.SpecializeContext {
     typealias ProcessedListItem<Item> = (item: Item, picks: [MarkdownBlockNode])
 
     func rawListItemByCherryPick(
-        _ rawListItem: RawListItem
+        _ rawListItem: RawListItem,
     ) -> (RawListItem, [MarkdownBlockNode]) {
         let (children, pickedNodes) = cherryPickChildren(rawListItem.children)
         return (RawListItem(children: children), pickedNodes)
     }
 
     func rawTaskListItemByCherryPick(
-        _ rawTaskListItem: RawTaskListItem
+        _ rawTaskListItem: RawTaskListItem,
     ) -> (RawTaskListItem, [MarkdownBlockNode]) {
         let (children, pickedNodes) = cherryPickChildren(rawTaskListItem.children)
         return (
             RawTaskListItem(isCompleted: rawTaskListItem.isCompleted, children: children),
-            pickedNodes
+            pickedNodes,
         )
     }
 
     func processNodeInsideListEnvironment(
-        _ node: MarkdownBlockNode
+        _ node: MarkdownBlockNode,
     ) -> [MarkdownBlockNode] {
         switch node {
         case let .bulletedList(isTight, items):
@@ -57,11 +57,9 @@ private extension MarkdownParser.SpecializeContext {
             }
         case let .numberedList(isTight, start, items):
             let processedItems = processItems(items, using: rawListItemByCherryPick)
-            let containsExtractedNodes = processedItems.contains { !$0.picks.isEmpty }
-            let builder: ([RawListItem]) -> MarkdownBlockNode = containsExtractedNodes
-                ? { .bulletedList(isTight: isTight, items: $0) }
-                : { .numberedList(isTight: isTight, start: start, items: $0) }
-            return buildBlocks(from: processedItems, using: builder)
+            return buildBlocks(from: processedItems) { processedItems, emittedItemCount in
+                .numberedList(isTight: isTight, start: start + emittedItemCount, items: processedItems)
+            }
         case let .taskList(isTight, items):
             let processedItems = processItems(items, using: rawTaskListItemByCherryPick)
             return buildBlocks(from: processedItems) { processedItems in
@@ -74,15 +72,18 @@ private extension MarkdownParser.SpecializeContext {
     }
 
     func cherryPickChildren(
-        _ children: [MarkdownBlockNode]
+        _ children: [MarkdownBlockNode],
     ) -> ([MarkdownBlockNode], [MarkdownBlockNode]) {
         var sanitizedChildren: [MarkdownBlockNode] = []
         var pickedNodes: [MarkdownBlockNode] = []
 
         for child in children {
             switch child {
-            case .codeBlock, .table, .heading, .thematicBreak, .blockquote:
+            case .codeBlock, .table, .heading, .thematicBreak:
                 pickedNodes.append(child)
+            case let .blockquote(children):
+                // A lifted quote skips processNode, so flatten it here.
+                pickedNodes.append(.blockquote(children: flattenBlockquoteChildren(children)))
             case let .bulletedList(isTight, items):
                 let processedItems = processItems(items, using: rawListItemByCherryPick)
                 sanitizedChildren.append(.bulletedList(isTight: isTight, items: processedItems.map(\.item)))
@@ -105,7 +106,7 @@ private extension MarkdownParser.SpecializeContext {
 
     func processItems<Item>(
         _ items: [Item],
-        using processor: (Item) -> (Item, [MarkdownBlockNode])
+        using processor: (Item) -> (Item, [MarkdownBlockNode]),
     ) -> [ProcessedListItem<Item>] {
         items.map { item in
             let (processedItem, pickedNodes) = processor(item)
@@ -115,24 +116,35 @@ private extension MarkdownParser.SpecializeContext {
 
     func buildBlocks<Item>(
         from processedItems: [ProcessedListItem<Item>],
-        using makeList: ([Item]) -> MarkdownBlockNode
+        using makeList: ([Item]) -> MarkdownBlockNode,
+    ) -> [MarkdownBlockNode] {
+        buildBlocks(from: processedItems) { items, _ in makeList(items) }
+    }
+
+    /// Splits a list around extracted block nodes. `makeList` receives the number
+    /// of items emitted in earlier segments so ordered lists can keep numbering.
+    func buildBlocks<Item>(
+        from processedItems: [ProcessedListItem<Item>],
+        using makeList: ([Item], _ emittedItemCount: Int) -> MarkdownBlockNode,
     ) -> [MarkdownBlockNode] {
         guard !processedItems.isEmpty else { return [] }
 
         var result: [MarkdownBlockNode] = []
         var currentItems: [Item] = []
+        var emittedItemCount = 0
 
         for (index, element) in processedItems.enumerated() {
             currentItems.append(element.item)
 
             if !element.picks.isEmpty {
                 if !currentItems.isEmpty {
-                    result.append(makeList(currentItems))
+                    result.append(makeList(currentItems, emittedItemCount))
+                    emittedItemCount += currentItems.count
                     currentItems.removeAll(keepingCapacity: true)
                 }
                 result.append(contentsOf: element.picks)
             } else if index == processedItems.count - 1, !currentItems.isEmpty {
-                result.append(makeList(currentItems))
+                result.append(makeList(currentItems, emittedItemCount))
             }
         }
 
@@ -197,39 +209,13 @@ private extension MarkdownParser.SpecializeContext {
         return flattenedChildren
     }
 
-    func extractParagraphsFromListItem(_ children: [MarkdownBlockNode]) -> [MarkdownBlockNode] {
-        var paragraphs: [MarkdownBlockNode] = []
-
-        for child in children {
-            switch child {
-            case let .paragraph(content):
-                paragraphs.append(.paragraph(content: content))
-            case let .heading(_, content):
-                paragraphs.append(.paragraph(content: content))
-            case let .codeBlock(_, content):
-                paragraphs.append(.paragraph(content: [.text(content)]))
-            case .blockquote:
-                // blockquote 应该已经被提取到顶级，这里不应该出现
-                assertionFailure("blockquote should not appear in list items")
-            case let .bulletedList(_, items):
-                paragraphs.append(contentsOf: extractParagraphs(from: items))
-            case let .numberedList(_, _, items):
-                paragraphs.append(contentsOf: extractParagraphs(from: items))
-            case let .taskList(_, items):
-                paragraphs.append(contentsOf: extractParagraphs(from: items))
-            default:
-                continue
-            }
-        }
-
-        return paragraphs
-    }
-
+    /// List items inside a blockquote are flattened like the blockquote itself:
+    /// a nested blockquote or table in an item keeps its text.
     func extractParagraphs(from items: [RawListItem]) -> [MarkdownBlockNode] {
-        items.flatMap { extractParagraphsFromListItem($0.children) }
+        items.flatMap { flattenBlockquoteChildren($0.children) }
     }
 
     func extractParagraphs(from items: [RawTaskListItem]) -> [MarkdownBlockNode] {
-        items.flatMap { extractParagraphsFromListItem($0.children) }
+        items.flatMap { flattenBlockquoteChildren($0.children) }
     }
 }

@@ -7,15 +7,19 @@
 //
 
 import Litext
-import UIKit
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 
-// MARK: - LTXAttributeStringRepresentable Extension
+// MARK: - TextLabel.AttachmentRepresentable Extension
 
-extension TableView: LTXAttributeStringRepresentable {
+extension TableView: TextLabel.AttachmentRepresentable {
     func attributedStringRepresentation() -> NSAttributedString {
         let attributedString = NSMutableAttributedString()
 
-        for row in contents {
+        for (index, row) in contents.enumerated() {
             let rowString = NSMutableAttributedString()
 
             for cell in row {
@@ -25,7 +29,7 @@ extension TableView: LTXAttributeStringRepresentable {
 
             attributedString.append(rowString)
 
-            if row != contents.last {
+            if index != contents.count - 1 {
                 attributedString.append(NSAttributedString(string: "\n"))
             }
         }

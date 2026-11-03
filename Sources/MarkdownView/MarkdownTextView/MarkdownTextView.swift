@@ -7,36 +7,95 @@ import Combine
 import CoreText
 import Litext
 import MarkdownParser
-import UIKit
 
-public final class MarkdownTextView: UIView {
-    public var linkHandler: ((LinkPayload, NSRange, CGPoint) -> Void)?
-    public var codePreviewHandler: ((String?, NSAttributedString) -> Void)?
-
-    public internal(set) var document: PreprocessedContent = .init()
-    public let textView: LTXLabel = .init()
-    public var theme: MarkdownTheme = .default {
-        didSet { setMarkdown(document) } // update it
+open class MarkdownTextView: PlatformView {
+    open var linkHandler: ((LinkPayload, NSRange, CGPoint) -> Void)? {
+        didSet { syncContextViewHandlers() }
     }
 
-    public internal(set) weak var trackedScrollView: UIScrollView? // for selection updating
+    open var codePreviewHandler: ((String?, NSAttributedString) -> Void)? {
+        didSet { syncContextViewHandlers() }
+    }
 
-    var contextViews: [UIView] = []
+    /// Adds the host's own buttons to code blocks; see `CodeBlockActionProvider`.
+    open weak var codeBlockActionProvider: CodeBlockActionProvider? {
+        didSet { syncContextViewHandlers() }
+    }
+
+    public internal(set) var content: MarkdownContent = .init()
+
+    @available(*, deprecated, renamed: "content")
+    public var document: MarkdownContent {
+        content
+    }
+
+    public let textLabelView: TextLabelView
+
+    @available(*, deprecated, renamed: "textLabelView")
+    public var textView: TextLabelView {
+        textLabelView
+    }
+
+    var themeStorage: MarkdownTheme = .default
+    open var theme: MarkdownTheme {
+        get { themeStorage }
+        set {
+            guard themeStorage != newValue else { return }
+            applyWithoutRebuilding(theme: newValue)
+            use(content)
+        }
+    }
+
+    /// Scroll view used for auto-scrolling while the user drags a text selection.
+    open weak var trackedScrollView: PlatformScrollView?
+
+    var contextViews: [PlatformView] = []
+    var blockquoteBars: [BlockquoteBarView] = []
+    /// Where each placed code or table view's attachment sits in the text,
+    /// so a selection can tell which of them it covers.
+    var contextViewLocations: [ObjectIdentifier: Int] = [:]
+    /// Highlight cache keys of the code blocks this view is showing.
+    var renderedHighlightKeys: Set<Int> = []
+    /// What each block rendered to last time, so an unchanged block is not
+    /// built again. Held per view because a fragment's drawing callbacks
+    /// read from the view they were built for.
+    var blockFragmentCache: BlockFragmentCache = .init()
     var cancellables = Set<AnyCancellable>()
-    let contentSubject = CurrentValueSubject<PreprocessedContent, Never>(.init())
-    public var throttleInterval: TimeInterval? = 1 / 20 { // x fps
-        didSet { setupCombine() }
+    let contentSubject = CurrentValueSubject<MarkdownContent, Never>(.init())
+    open var throttleInterval: TimeInterval? = 1 / 20 { // x fps
+        didSet { resubscribeKeepingPendingContent() }
     }
 
     let viewProvider: ReusableViewProvider
+    /// Whether the rebuild in progress shows content from ``setContent(_:)``.
+    var rebuildIsStreamed = false
 
-    public init(viewProvider: ReusableViewProvider = .init()) {
+    /// - Parameter textLabelView: the label that draws the document body.
+    ///   Pass a `TextLabelView` subclass to change how body text is drawn
+    ///   while code blocks, tables and selection keep working as before. A
+    ///   label without a `lineRenderer` is given an
+    ///   ``InlineCodeLineRenderer``, so inline code keeps its pill; pass one
+    ///   that subclasses it to draw more behind the lines.
+    public init(textLabelView: TextLabelView = MarkdownTextLabelView(), viewProvider: ReusableViewProvider = .init()) {
+        self.textLabelView = textLabelView
         self.viewProvider = viewProvider
         super.init(frame: .zero)
-        textView.isSelectable = true
-        textView.backgroundColor = .clear
-        textView.delegate = self
-        addSubview(textView)
+        if textLabelView.lineRenderer == nil {
+            textLabelView.lineRenderer = InlineCodeLineRenderer()
+        }
+        textLabelView.isSelectable = true
+        textLabelView.selectionBackgroundColor = theme.colors.selectionBackground
+        textLabelView.delegate = self
+        #if canImport(UIKit)
+            textLabelView.backgroundColor = .clear
+        #elseif canImport(AppKit)
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        #endif
+        // The label is sized in layout rather than by constraints: its height
+        // decides how much text CoreText lays out, and a frame that trails
+        // the view by one pass drops the tail of the document.
+        addSubview(textLabelView)
         setupCombine()
     }
 
@@ -45,43 +104,234 @@ public final class MarkdownTextView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override public func layoutSubviews() {
-        super.layoutSubviews()
+    #if canImport(UIKit)
+        override open func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+            super.traitCollectionDidChange(previousTraitCollection)
+            guard traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) else { return }
+            // Fork footnotes and custom code pills bake their colors into images.
+            blockFragmentCache = .init()
+            use(content, resizes: false)
+        }
 
-        textView.preferredMaxLayoutWidth = bounds.width
-        textView.frame = bounds
+        override open func layoutSubviews() {
+            super.layoutSubviews()
+            textLabelView.frame = bounds
+            textLabelView.preferredMaxLayoutWidth = bounds.width
+            // The placement below reads the label's layout, so the label has
+            // to be laid out first. iOS 18 can clear the label's pending
+            // layout before this runs and lay it out only afterwards, which
+            // leaves `layoutIfNeeded()` with nothing to do and the label with
+            // no lines: every code block and table would be hidden, and stay
+            // hidden until the frame next changes.
+            textLabelView.setNeedsLayout()
+            textLabelView.layoutIfNeeded()
+            syncContextViewLayout()
+        }
+    #elseif canImport(AppKit)
+        override open nonisolated var isFlipped: Bool {
+            true
+        }
+
+        override open func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            use(content, resizes: false)
+        }
+
+        override open func layout() {
+            super.layout()
+            textLabelView.frame = bounds
+            textLabelView.preferredMaxLayoutWidth = bounds.width
+            textLabelView.layoutSubtreeIfNeeded()
+            syncContextViewLayout()
+        }
+    #endif
+
+    override open var intrinsicContentSize: CGSize {
+        textLabelView.intrinsicContentSize
     }
 
-    /// 深浅色切换时重建：行内代码胶囊、脚注等是按当时 trait 烘焙的图片，不重建颜色会停留在切换前
-    override public func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        guard traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection),
-              !document.blocks.isEmpty else { return }
-        autoreleasepool { updateTextExecute() }
+    open func boundingSize(for width: CGFloat) -> CGSize {
+        textLabelView.preferredMaxLayoutWidth = width
+        return textLabelView.intrinsicContentSize
     }
 
-    public func boundingSize(for width: CGFloat) -> CGSize {
-        textView.preferredMaxLayoutWidth = width
-        return textView.intrinsicContentSize
+    /// Decorates one run of rendered body text on its way into the document
+    /// — the seam a subclass reaches for to turn plain words into something
+    /// richer, an `@mention` chip being the case this exists for.
+    ///
+    /// Offered for every text run, including those nested inside emphasis,
+    /// strong or a link, and never for inline code, math, HTML, or an
+    /// image's source: each of those is its own inline node, so a pattern
+    /// that appears inside a code span is not mistaken for prose. What the
+    /// enclosing node does afterwards still applies — `strong` sweeps its
+    /// whole range for fonts, `link` for colour — so a decoration inside
+    /// one is styled by it.
+    ///
+    /// The default returns `text` unchanged. An override may return a
+    /// string of a different length, and may carry a Litext attachment: the
+    /// result deliberately sits outside the shared inline render cache, so
+    /// an attachment view built here belongs to this view alone rather than
+    /// to every view that happens to draw the same words. What is handed
+    /// *in*, on the other hand, comes straight from that cache and is read
+    /// by every other view showing the same words — copy it before
+    /// mutating.
+    ///
+    /// Decorated runs do live in this view's fragment cache across
+    /// rebuilds. Call ``invalidateInlineDecoration()`` when whatever an
+    /// override reads from has changed.
+    open func decorate(inlineText text: NSAttributedString, theme _: MarkdownTheme) -> NSAttributedString {
+        text
     }
 
-    public func setMarkdownManually(_ content: PreprocessedContent) {
+    /// Rebuilds the document, dropping text decorated against state that
+    /// has since moved on.
+    open func invalidateInlineDecoration() {
         assert(Thread.isMainThread)
-        resetCombine()
+        blockFragmentCache = .init()
+        for case let tableView as TableView in contextViews {
+            tableView.forgetRenderedSource()
+        }
         use(content)
     }
 
-    public func setMarkdown(_ content: PreprocessedContent) {
+    /// Replaces the displayed content immediately, bypassing the update throttle.
+    open func setContentImmediately(_ content: MarkdownContent) {
+        assert(Thread.isMainThread)
+        resetCombine()
+        contentSubject.send(content)
+        use(content)
+        setupCombine()
+    }
+
+    /// Replaces the displayed content and the theme in one build.
+    ///
+    /// Assigning ``theme`` alone rebuilds the document the view already
+    /// holds — right when the theme is all that changed, wasted when new
+    /// content lands in the same breath. A view fed themed content from
+    /// the outside (a sizing pass serving differently-inked bubbles, a
+    /// row being reconfigured) should use this instead of setting the
+    /// two properties in sequence.
+    open func setContentImmediately(_ content: MarkdownContent, theme: MarkdownTheme) {
+        applyWithoutRebuilding(theme: theme)
+        setContentImmediately(content)
+    }
+
+    /// Stores the theme and restyles the label without rebuilding the
+    /// current document — for callers about to replace it anyway.
+    func applyWithoutRebuilding(theme: MarkdownTheme) {
+        guard themeStorage != theme else { return }
+        themeStorage = theme
+        textLabelView.selectionBackgroundColor = theme.colors.selectionBackground
+    }
+
+    /// Replaces the displayed content, coalesced by ``throttleInterval``.
+    /// Safe to call at high frequency (e.g. while streaming).
+    open func setContent(_ content: MarkdownContent) {
         contentSubject.send(content)
     }
 
-    public func reset() {
+    /// Shows content that came through ``setContent(_:)`` once the throttle
+    /// lets it through. `MarkdownStreamView` paces it itself.
+    /// Declared here rather than in an extension, so `MarkdownStreamView` can
+    /// override it.
+    func deliverStreamedContent(_ content: MarkdownContent) {
+        use(content, streamed: true)
+    }
+
+    /// Parses and displays markdown text in one step.
+    /// For streaming or off-main-thread parsing, build a ``MarkdownContent``
+    /// yourself and use ``setContent(_:)``.
+    open func setMarkdown(_ markdown: String) {
+        setContentImmediately(.init(markdown: markdown, theme: theme))
+    }
+
+    @available(*, deprecated, renamed: "setContentImmediately(_:)")
+    public func setMarkdownManually(_ content: MarkdownContent) {
+        setContentImmediately(content)
+    }
+
+    @available(*, deprecated, renamed: "setContent(_:)")
+    public func setMarkdown(_ content: MarkdownContent) {
+        setContent(content)
+    }
+
+    open func reset() {
         assert(Thread.isMainThread)
+        resetCombine()
+        contentSubject.send(.init())
         use(.init())
         setupCombine()
     }
 
-    public func bindContentOffset(from scrollView: UIScrollView?) {
+    /// Shows a rebuilt document. The default assigns it to ``textLabelView``.
+    ///
+    /// `animated` is `true` when the document was built from content that
+    /// arrived through ``setContent(_:)``, the path a stream feeds, and `false`
+    /// for every other rebuild: ``setContentImmediately(_:)``, a theme, a
+    /// finished highlight. `newContextViews` are the code and table views this
+    /// document shows that the previous one did not. The view already lists
+    /// every code and table view the document shows, but none is placed yet.
+    /// Overrides must show `document` in ``textLabelView``.
+    open func applyDocument(_ document: NSAttributedString, newContextViews _: [PlatformView], animated _: Bool) {
+        textLabelView.attributedText = document
+    }
+
+    @available(*, deprecated, renamed: "trackedScrollView")
+    public func bindContentOffset(from scrollView: PlatformScrollView?) {
         trackedScrollView = scrollView
     }
+
+    // MARK: - TextLabelViewDelegate
+
+    // Declared here rather than in the conformance's extension, where a
+    // subclass could not override them. Overrides must call `super`.
+
+    open func textLabelView(_ label: TextLabelView, didChangeSelection _: NSRange?) {
+        // Code and table views report their own labels here too; only the
+        // document's selection can run across them.
+        guard label === textLabelView else { return }
+        syncContextViewSelection()
+    }
+
+    open func textLabelView(_ label: TextLabelView, didDragSelectionAt location: CGPoint) {
+        guard let scrollView = trackedScrollView else { return }
+        autoScroll(scrollView, toFollowDragAt: location, in: label)
+    }
+
+    open func textLabelView(_: TextLabelView, didTapHighlightRegion highlightRegion: TextLabel.HighlightRegion, at location: CGPoint) {
+        if let latexContent = highlightRegion.attributes[.mathLatexContent] as? String {
+            presentMathPreview(for: latexContent, theme: theme)
+            return
+        }
+
+        let link = highlightRegion.attributes[NSAttributedString.Key.link]
+        let range = highlightRegion.stringRange
+        if let url = link as? URL {
+            linkHandler?(.url(url), range, location)
+        } else if let string = link as? String {
+            linkHandler?(.string(string), range, location)
+        }
+    }
+
+    #if canImport(UIKit)
+        /// Returns `nil`, the system's menu.
+        open func textLabelView(
+            _: TextLabelView,
+            editMenuForSelection _: NSRange,
+            suggestedActions _: [UIMenuElement],
+        ) -> UIMenu? {
+            nil
+        }
+
+    #elseif canImport(AppKit)
+        /// Returns `nil`, the menu the label built.
+        open func textLabelView(
+            _: TextLabelView,
+            menu _: NSMenu,
+            forSelection _: NSRange,
+            event _: NSEvent,
+        ) -> NSMenu? {
+            nil
+        }
+    #endif
 }

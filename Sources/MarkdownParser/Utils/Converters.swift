@@ -50,20 +50,20 @@ extension MarkdownBlockNode {
             if unsafeNode.children.contains(where: \.isTaskListItem) {
                 self = .taskList(
                     isTight: unsafeNode.isTightList,
-                    items: unsafeNode.children.map(RawTaskListItem.init(unsafeNode:))
+                    items: unsafeNode.children.map(RawTaskListItem.init(unsafeNode:)),
                 )
             } else {
                 switch unsafeNode.listType {
                 case CMARK_BULLET_LIST:
                     self = .bulletedList(
                         isTight: unsafeNode.isTightList,
-                        items: unsafeNode.children.map(RawListItem.init(unsafeNode:))
+                        items: unsafeNode.children.map(RawListItem.init(unsafeNode:)),
                     )
                 case CMARK_ORDERED_LIST:
                     self = .numberedList(
                         isTight: unsafeNode.isTightList,
                         start: unsafeNode.listStart,
-                        items: unsafeNode.children.map(RawListItem.init(unsafeNode:))
+                        items: unsafeNode.children.map(RawListItem.init(unsafeNode:)),
                     )
                 default:
                     fatalError("cmark reported a list node without a list type.")
@@ -78,12 +78,12 @@ extension MarkdownBlockNode {
         case .heading:
             self = .heading(
                 level: unsafeNode.headingLevel,
-                content: unsafeNode.children.compactMap(MarkdownInlineNode.init(unsafeNode:))
+                content: unsafeNode.children.compactMap(MarkdownInlineNode.init(unsafeNode:)),
             )
         case .table:
             self = .table(
                 columnAlignments: unsafeNode.tableAlignments,
-                rows: unsafeNode.children.map(RawTableRow.init(unsafeNode:))
+                rows: unsafeNode.children.map(RawTableRow.init(unsafeNode:)),
             )
         case .thematicBreak:
             self = .thematicBreak
@@ -110,7 +110,7 @@ extension RawTaskListItem {
         }
         self.init(
             isCompleted: unsafeNode.isTaskListItemChecked,
-            children: unsafeNode.children.flatMap(MarkdownBlockNode.makeBlocks(unsafeNode:))
+            children: unsafeNode.children.flatMap(MarkdownBlockNode.makeBlocks(unsafeNode:)),
         )
     }
 }
@@ -153,14 +153,18 @@ extension MarkdownInlineNode {
         case .strikethrough:
             self = .strikethrough(children: unsafeNode.children.compactMap(MarkdownInlineNode.init(unsafeNode:)))
         case .link:
-            self = .link(
-                destination: unsafeNode.url ?? "",
-                children: unsafeNode.children.compactMap(MarkdownInlineNode.init(unsafeNode:))
-            )
+            let destination = unsafeNode.url ?? ""
+            let children = unsafeNode.children.compactMap(MarkdownInlineNode.init(unsafeNode:))
+            // Citation links are a fork extension, independent of the optional math pass.
+            if children.count == 1, case let .text(text) = children[0], text.hasPrefix("^") {
+                self = .footnote(destination: destination, children: [.text(String(text.dropFirst()))])
+            } else {
+                self = .link(destination: destination, children: children)
+            }
         case .image:
             self = .image(
                 source: unsafeNode.url ?? "",
-                children: unsafeNode.children.compactMap(MarkdownInlineNode.init(unsafeNode:))
+                children: unsafeNode.children.compactMap(MarkdownInlineNode.init(unsafeNode:)),
             )
         default:
             assertionFailure("Unhandled node type '\(unsafeNode.nodeType)' in InlineNode.")
@@ -171,11 +175,46 @@ extension MarkdownInlineNode {
 
 extension UnsafeNode {
     var nodeType: MarkdownNodeType {
+        // A node an extension owns may name its own type (a task list item is
+        // a core item that reports "tasklist"), so only a node without one
+        // can be read off its core type.
+        if pointee.extension == nil, let coreType = coreNodeType {
+            return coreType
+        }
         let typeString = String(cString: cmark_node_get_type_string(self))
         guard let nodeType = MarkdownNodeType(rawValue: typeString) else {
             fatalError("Unknown node type '\(typeString)' found.")
         }
         return nodeType
+    }
+
+    /// The type `cmark_node_get_type_string` names for a node no extension
+    /// owns, or nil for one it names something `MarkdownNodeType` lacks.
+    private var coreNodeType: MarkdownNodeType? {
+        switch cmark_node_type(rawValue: UInt32(pointee.type)) {
+        case CMARK_NODE_DOCUMENT: .document
+        case CMARK_NODE_BLOCK_QUOTE: .blockquote
+        case CMARK_NODE_LIST: .list
+        case CMARK_NODE_ITEM: .item
+        case CMARK_NODE_CODE_BLOCK: .codeBlock
+        case CMARK_NODE_HTML_BLOCK: .htmlBlock
+        case CMARK_NODE_CUSTOM_BLOCK: .customBlock
+        case CMARK_NODE_PARAGRAPH: .paragraph
+        case CMARK_NODE_HEADING: .heading
+        case CMARK_NODE_THEMATIC_BREAK: .thematicBreak
+        case CMARK_NODE_TEXT: .text
+        case CMARK_NODE_SOFTBREAK: .softBreak
+        case CMARK_NODE_LINEBREAK: .lineBreak
+        case CMARK_NODE_CODE: .code
+        case CMARK_NODE_HTML_INLINE: .html
+        case CMARK_NODE_CUSTOM_INLINE: .customInline
+        case CMARK_NODE_EMPH: .emphasis
+        case CMARK_NODE_STRONG: .strong
+        case CMARK_NODE_LINK: .link
+        case CMARK_NODE_IMAGE: .image
+        case CMARK_NODE_ATTRIBUTE: .inlineAttributes
+        default: nil
+        }
     }
 
     var children: UnsafeNodeSequence {
@@ -232,7 +271,7 @@ extension UnsafeNode {
     }
 }
 
-public enum MarkdownNodeType: String {
+public enum MarkdownNodeType: String, Sendable {
     case document
     case blockquote = "block_quote"
     case list
@@ -293,8 +332,8 @@ struct UnsafeNodeSequence: Sequence {
     }
 }
 
-// Extension node types are not exported in `cmark_gfm_extensions`,
-// so we need to look for them in the symbol table
+/// Extension node types are not exported in `cmark_gfm_extensions`,
+/// so we need to look for them in the symbol table
 struct ExtensionNodeTypes {
     let CMARK_NODE_TABLE: cmark_node_type
     let CMARK_NODE_TABLE_ROW: cmark_node_type

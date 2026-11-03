@@ -7,175 +7,331 @@
 //
 
 import Litext
-import UIKit
+import LitextAnimation
+import MarkdownParser
 
-final class TableViewCellManager {
-    // MARK: - Properties
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 
-    private(set) var cells: [LTXLabel] = []
-    private(set) var cellSizes: [CGSize] = []
-    private(set) var widths: [CGFloat] = []
-    private(set) var heights: [CGFloat] = []
-    private var theme: MarkdownTheme = .default
-    private weak var delegate: LTXLabelDelegate?
+struct TableLayoutMetrics: Equatable {
+    let minimumColumnWidth: CGFloat
+    let maximumColumnWidth: CGFloat
+    let horizontalCellPadding: CGFloat
+    let verticalCellPadding: CGFloat
+    let minimumRowHeight: CGFloat
 
-    // MARK: - Cell Configuration
+    static let compact = TableLayoutMetrics(
+        minimumColumnWidth: 88,
+        maximumColumnWidth: 280,
+        horizontalCellPadding: 9,
+        verticalCellPadding: 7,
+        minimumRowHeight: 38,
+    )
 
-    func configureCells(
-        for contents: [[NSAttributedString]],
-        in containerView: UIView,
-        cellPadding: CGFloat,
-        maximumCellWidth: CGFloat
-    ) {
-        let numberOfRows = contents.count
-        let numberOfColumns = contents.first?.count ?? 0
+    static let regular = TableLayoutMetrics(
+        minimumColumnWidth: 96,
+        maximumColumnWidth: 320,
+        horizontalCellPadding: 10,
+        verticalCellPadding: 8,
+        minimumRowHeight: 38,
+    )
 
-        // Reset arrays
-        cellSizes = Array(repeating: .zero, count: numberOfRows * numberOfColumns)
-        cells.forEach { $0.removeFromSuperview() }
-        cells.removeAll()
-        widths = Array(repeating: 0, count: numberOfColumns)
-        heights = Array(repeating: 0, count: numberOfRows)
-
-        // Configure cells for each row and column
-        for (row, rowContent) in contents.enumerated() {
-            var rowHeight: CGFloat = 0
-
-            for (column, cellString) in rowContent.enumerated() {
-                let index = row * rowContent.count + column
-                let isHeaderCell = row == 0
-                let cell = createOrUpdateCell(
-                    at: index,
-                    with: cellString,
-                    maximumWidth: maximumCellWidth,
-                    isHeader: isHeaderCell,
-                    in: containerView
-                )
-
-                let cellSize = calculateCellSize(for: cell, cellPadding: cellPadding)
-                cellSizes[index] = cellSize
-
-                // Update row and column dimensions
-                rowHeight = max(rowHeight, cellSize.height)
-                widths[column] = max(widths[column], cellSize.width)
-            }
-
-            heights[row] = rowHeight
-        }
-    }
-
-    // MARK: - Public Methods
-
-    func setTheme(_ theme: MarkdownTheme) {
-        self.theme = theme
-        updateCellsAppearance()
-    }
-
-    func setDelegate(_ delegate: LTXLabelDelegate?) {
-        self.delegate = delegate
-        cells.forEach { $0.delegate = delegate }
-    }
-
-    // MARK: - Private Methods
-
-    private func createOrUpdateCell(
-        at index: Int,
-        with attributedText: NSAttributedString,
-        maximumWidth: CGFloat,
-        isHeader: Bool,
-        in containerView: UIView
-    ) -> LTXLabel {
-        let cell: LTXLabel
-
-        if index >= cells.count {
-            cell = LTXLabel()
-            cell.isSelectable = true
-            cell.backgroundColor = .clear
-            cell.preferredMaxLayoutWidth = maximumWidth
-            cell.delegate = delegate
-            containerView.addSubview(cell)
-            cells.append(cell)
-        } else {
-            cell = cells[index]
-        }
-
-        cell.attributedText = attributedText
-
-        if isHeader {
-            applyCellHeaderStyling(to: cell)
-        } else {
-            applyCellNormalStyling(to: cell)
-        }
-
-        return cell
-    }
-
-    private func calculateCellSize(for cell: LTXLabel, cellPadding: CGFloat) -> CGSize {
-        let contentSize = cell.intrinsicContentSize
-        return CGSize(
-            width: ceil(contentSize.width) + cellPadding * 2,
-            height: ceil(contentSize.height) + cellPadding * 2
+    func applying(_ table: MarkdownTheme.Table) -> TableLayoutMetrics {
+        TableLayoutMetrics(
+            minimumColumnWidth: minimumColumnWidth,
+            maximumColumnWidth: maximumColumnWidth,
+            horizontalCellPadding: table.cellPadding,
+            verticalCellPadding: table.cellPadding,
+            minimumRowHeight: max(minimumRowHeight, table.minimumRowHeight)
         )
     }
 
-    private func applyCellHeaderStyling(to cell: LTXLabel) {
-        if let attributedText = cell.attributedText.mutableCopy() as? NSMutableAttributedString {
-            let range = NSRange(location: 0, length: attributedText.length)
-
-            if let headerFont = theme.table.headerFont {
-                attributedText.addAttribute(.font, value: headerFont, range: range)
-            } else {
-                attributedText.enumerateAttribute(.font, in: range, options: []) {
-                    value, subRange, _ in
-                    if let existingFont = value as? UIFont {
-                        let boldFont = UIFont.boldSystemFont(ofSize: existingFont.pointSize)
-                        attributedText.addAttribute(.font, value: boldFont, range: subRange)
-                    } else {
-                        attributedText.addAttribute(.font, value: theme.fonts.bold, range: subRange)
-                    }
-                }
-            }
-
-            cell.attributedText = attributedText
-        }
+    var maximumTextWidth: CGFloat {
+        maximumColumnWidth - horizontalCellPadding * 2
     }
 
-    private func applyCellNormalStyling(to cell: LTXLabel) {
-        if let attributedText = cell.attributedText.mutableCopy() as? NSMutableAttributedString {
-            let range = NSRange(location: 0, length: attributedText.length)
-
-            attributedText.enumerateAttribute(.foregroundColor, in: range, options: []) {
-                value, subRange, _ in
-                if value == nil {
-                    attributedText.addAttribute(
-                        .foregroundColor, value: theme.colors.body, range: subRange
-                    )
-                }
-            }
-            if let cellFont = theme.table.cellFont {
-                // 只替换仍是正文字体的文字，保留加粗 / 代码等
-                attributedText.enumerateAttribute(.font, in: range, options: []) { value, subRange, _ in
-                    if let font = value as? UIFont, font == theme.fonts.body {
-                        attributedText.addAttribute(.font, value: cellFont, range: subRange)
-                    }
-                }
-            }
-
-            cell.attributedText = attributedText
-        }
-    }
-
-    private func updateCellsAppearance() {
-        for (index, cell) in cells.enumerated() {
-            let numberOfColumns = widths.count
-            let row = index / numberOfColumns
-            let isHeaderCell = row == 0
-
-            if isHeaderCell {
-                applyCellHeaderStyling(to: cell)
-            } else {
-                applyCellNormalStyling(to: cell)
-            }
-        }
+    func validate() {
+        precondition(minimumColumnWidth >= 0)
+        precondition(maximumColumnWidth >= minimumColumnWidth)
+        precondition(horizontalCellPadding >= 0)
+        precondition(verticalCellPadding >= 0)
+        precondition(minimumRowHeight >= 0)
+        precondition(maximumTextWidth > 0)
     }
 }
+
+#if canImport(UIKit) || canImport(AppKit)
+    @MainActor
+    final class TableViewCellManager {
+        /// What a cell was last styled and measured from.
+        ///
+        /// A streamed table is configured again on every token, and all but
+        /// the cell being typed come back unchanged. A cell whose record
+        /// matches keeps its text and its measured size; only the others are
+        /// styled and laid out again.
+        private struct CellRecord {
+            let source: NSAttributedString
+            let isHeader: Bool
+            let alignment: RawTableColumnAlignment
+            let maximumTextWidth: CGFloat
+            let accessoryWidth: CGFloat
+            let size: CGSize
+
+            func matches(
+                _ source: NSAttributedString,
+                isHeader: Bool,
+                alignment: RawTableColumnAlignment,
+                maximumTextWidth: CGFloat,
+                accessoryWidth: CGFloat,
+            ) -> Bool {
+                self.isHeader == isHeader
+                    && self.alignment == alignment
+                    && self.maximumTextWidth == maximumTextWidth
+                    && self.accessoryWidth == accessoryWidth
+                    && (self.source === source || self.source.isEqual(to: source))
+            }
+        }
+
+        // MARK: - Properties
+
+        /// Each an `LTXAnimatableLabel`, so a streaming document can fade in
+        /// the text a cell grows by. Without an animator, which is how they
+        /// are made, they draw exactly as a `MarkdownTextLabelView` does.
+        private(set) var cells: [TextLabelView] = []
+        /// Called with every cell made, after it joins its column and before
+        /// it shows any text.
+        var prepareCell: ((LTXAnimatableLabel) -> Void)?
+        private var records: [CellRecord?] = []
+        private(set) var cellSizes: [CGSize] = []
+        private(set) var widths: [CGFloat] = []
+        private(set) var heights: [CGFloat] = []
+        private var theme: MarkdownTheme = .default
+        private weak var delegate: TextLabelViewDelegate?
+        private var numberOfColumns = 0
+        /// Cells the last configuration styled and measured again; the rest
+        /// were already showing their content.
+        private(set) var lastRestyledCellCount = 0
+
+        // MARK: - Cell Configuration
+
+        /// Lays `contents` out one cell per entry, row by row.
+        ///
+        /// `headerAccessoryWidths[column]` is space the header cell of
+        /// `column` leaves free at its trailing edge, counted into the
+        /// column's width. Each cell is added to its column's view in
+        /// `columnViews`.
+        func configureCells(
+            for contents: [[NSAttributedString]],
+            columnAlignments: [RawTableColumnAlignment] = [],
+            headerAccessoryWidths: [CGFloat] = [],
+            in columnViews: [PlatformView],
+            metrics: TableLayoutMetrics,
+        ) {
+            metrics.validate()
+
+            let numberOfRows = contents.count
+            let numberOfColumns = contents.first?.count ?? 0
+            guard contents.allSatisfy({ $0.count == numberOfColumns }) else {
+                assertionFailure("Markdown table rows must have a consistent column count.")
+                resetLayout()
+                return
+            }
+            guard columnViews.count >= numberOfColumns else {
+                assertionFailure("Every Markdown table column needs a view for its cells.")
+                resetLayout()
+                return
+            }
+
+            let (requiredCellCount, countOverflow) = numberOfRows.multipliedReportingOverflow(
+                by: numberOfColumns,
+            )
+            guard !countOverflow else {
+                assertionFailure("Markdown table cell count overflowed Int.")
+                resetLayout()
+                return
+            }
+            // A cell's index is its row times the column count, so a new
+            // column count moves every cell; nothing recorded still applies.
+            if numberOfColumns != self.numberOfColumns {
+                records = Array(repeating: nil, count: records.count)
+                self.numberOfColumns = numberOfColumns
+            }
+            cellSizes = Array(repeating: .zero, count: requiredCellCount)
+            widths = Array(repeating: 0, count: numberOfColumns)
+            heights = Array(repeating: 0, count: numberOfRows)
+            trimSurplusCells(keeping: requiredCellCount)
+            lastRestyledCellCount = 0
+
+            for (row, rowContent) in contents.enumerated() {
+                var rowHeight = metrics.minimumRowHeight
+
+                for (column, cellString) in rowContent.enumerated() {
+                    let index = row * numberOfColumns + column
+                    let isHeader = row == 0
+                    let accessoryWidth = isHeader
+                        ? max(0, headerAccessoryWidths[safe: column] ?? 0)
+                        : 0
+                    let cellSize = createOrUpdateCell(
+                        at: index,
+                        with: cellString,
+                        isHeader: isHeader,
+                        alignment: columnAlignments[safe: column] ?? .none,
+                        accessoryWidth: accessoryWidth,
+                        metrics: metrics,
+                        in: columnViews[column],
+                    )
+                    cellSizes[index] = cellSize
+                    rowHeight = max(rowHeight, cellSize.height)
+                    widths[column] = max(widths[column], cellSize.width)
+                }
+
+                heights[row] = rowHeight
+            }
+        }
+
+        // MARK: - Public Methods
+
+        /// Takes `theme` for the cells configured next. Every cell is styled
+        /// and measured again then, since fonts and colours come from it.
+        func setTheme(_ theme: MarkdownTheme) {
+            guard self.theme != theme else { return }
+            self.theme = theme
+            records = Array(repeating: nil, count: records.count)
+            cells.forEach { $0.selectionBackgroundColor = theme.colors.selectionBackground }
+        }
+
+        func setDelegate(_ delegate: TextLabelViewDelegate?) {
+            self.delegate = delegate
+            cells.forEach { $0.delegate = delegate }
+        }
+
+        // MARK: - Private Methods
+
+        /// Brings the cell at `index` up to `attributedText` and returns its
+        /// padded size, styling and measuring it only when what it was last
+        /// built from differs.
+        private func createOrUpdateCell(
+            at index: Int,
+            with attributedText: NSAttributedString,
+            isHeader: Bool,
+            alignment: RawTableColumnAlignment,
+            accessoryWidth: CGFloat,
+            metrics: TableLayoutMetrics,
+            in containerView: PlatformView,
+        ) -> CGSize {
+            let cell: TextLabelView
+            var newCell: LTXAnimatableLabel?
+
+            if index >= cells.count {
+                let made = LTXAnimatableLabel()
+                made.lineRenderer = InlineCodeLineRenderer()
+                #if canImport(UIKit)
+                    made.backgroundColor = .clear
+                #elseif canImport(AppKit)
+                    made.wantsLayer = true
+                    made.layer?.backgroundColor = NSColor.clear.cgColor
+                #endif
+                made.selectionBackgroundColor = theme.colors.selectionBackground
+                made.delegate = delegate
+                made.isSelectable = true
+                cells.append(made)
+                records.append(nil)
+                cell = made
+                newCell = made
+            } else {
+                cell = cells[index]
+            }
+            // A new column count moves a kept cell into another column.
+            if cell.superview !== containerView {
+                containerView.addSubview(cell)
+            }
+            if let newCell {
+                prepareCell?(newCell)
+            }
+
+            // The header cell gives up its accessory's width, and the column
+            // still stays within the maximum.
+            let maximumTextWidth = max(1, metrics.maximumTextWidth - accessoryWidth)
+            if let record = records[index], record.matches(
+                attributedText,
+                isHeader: isHeader,
+                alignment: alignment,
+                maximumTextWidth: maximumTextWidth,
+                accessoryWidth: accessoryWidth,
+            ) {
+                return record.size
+            }
+
+            lastRestyledCellCount += 1
+            let styledText = TableCellStyle(theme: theme).styledText(
+                from: attributedText,
+                isHeader: isHeader,
+                alignment: alignment,
+            )
+            cell.isSelectable = true
+            if cell.preferredMaxLayoutWidth != maximumTextWidth {
+                cell.preferredMaxLayoutWidth = maximumTextWidth
+            }
+            if !cell.attributedText.isEqual(to: styledText) {
+                cell.attributedText = styledText
+            }
+            let size = calculateCellSize(for: cell, accessoryWidth: accessoryWidth, metrics: metrics)
+            records[index] = CellRecord(
+                source: attributedText.copy() as? NSAttributedString ?? attributedText,
+                isHeader: isHeader,
+                alignment: alignment,
+                maximumTextWidth: maximumTextWidth,
+                accessoryWidth: accessoryWidth,
+                size: size,
+            )
+            return size
+        }
+
+        private func trimSurplusCells(keeping requiredCellCount: Int) {
+            guard cells.count > requiredCellCount else { return }
+            for index in stride(from: cells.count - 1, through: requiredCellCount, by: -1) {
+                cells[index].removeFromSuperview()
+                cells.remove(at: index)
+                if index < records.count {
+                    records.remove(at: index)
+                }
+            }
+        }
+
+        private func resetLayout() {
+            trimSurplusCells(keeping: 0)
+            records.removeAll()
+            cellSizes.removeAll()
+            widths.removeAll()
+            heights.removeAll()
+            numberOfColumns = 0
+        }
+
+        private func calculateCellSize(
+            for cell: TextLabelView,
+            accessoryWidth: CGFloat,
+            metrics: TableLayoutMetrics,
+        ) -> CGSize {
+            let contentSize = cell.intrinsicContentSize
+            let paddedWidth = ceil(contentSize.width) + accessoryWidth + metrics.horizontalCellPadding * 2
+            let paddedHeight = ceil(contentSize.height) + metrics.verticalCellPadding * 2
+            return CGSize(
+                width: min(
+                    metrics.maximumColumnWidth,
+                    max(metrics.minimumColumnWidth, paddedWidth),
+                ),
+                height: max(metrics.minimumRowHeight, paddedHeight),
+            )
+        }
+    }
+
+    extension Array {
+        subscript(safe index: Int) -> Element? {
+            guard indices.contains(index) else { return nil }
+            return self[index]
+        }
+    }
+#endif

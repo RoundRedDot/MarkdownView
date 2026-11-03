@@ -7,16 +7,12 @@
 
 import CoreText
 import Litext
-import UIKit
 
 extension MarkdownTextView {
     func updateTextExecute() {
         assert(Thread.isMainThread)
 
-        viewProvider.lockPool()
-        defer { viewProvider.unlockPool() }
-
-        var oldViews: Set<UIView> = .init()
+        var oldViews: Set<PlatformView> = .init()
         for view in contextViews {
             oldViews.insert(view)
             if let view = view as? CodeView {
@@ -31,20 +27,31 @@ extension MarkdownTextView {
         }
 
         viewProvider.reorderViews(matching: contextViews)
+        let ownedContextViews = contextViews
         contextViews.removeAll()
 
-        // 行内代码胶囊、脚注等会在这里被烘焙成图片，动态色必须按本视图的 trait 解析，
-        // 否则宿主用 overrideUserInterfaceStyle（如导出黑色模板强制 light）时会拿到系统当前深浅色的值
-        var artifacts: TextBuilder.BuildResult!
-        traitCollection.performAsCurrent {
-            artifacts = TextBuilder.build(view: self, viewProvider: viewProvider)
-        }
-        textView.attributedText = artifacts.document
+        let artifacts: TextBuilder.BuildResult
+        #if canImport(UIKit)
+            var built: TextBuilder.BuildResult!
+            traitCollection.performAsCurrent {
+                built = TextBuilder.build(view: self, viewProvider: viewProvider, ownedContextViews: ownedContextViews)
+            }
+            artifacts = built
+        #else
+            artifacts = TextBuilder.build(view: self, viewProvider: viewProvider, ownedContextViews: ownedContextViews)
+        #endif
         contextViews = artifacts.subviews
+        let newContextViews = artifacts.subviews.filter { !oldViews.contains($0) }
+        applyDocument(artifacts.document, newContextViews: newContextViews, animated: rebuildIsStreamed)
+        renderedHighlightKeys = artifacts.highlightKeys
+        blockFragmentCache = artifacts.fragmentCache
 
         for view in artifacts.subviews {
             if let view = view as? CodeView {
                 view.textView.delegate = self
+            }
+            if let view = view as? TableView {
+                view.textSelectionDelegate = self
             }
         }
 
@@ -52,10 +59,10 @@ extension MarkdownTextView {
             goneView.removeFromSuperview()
         }
 
-        textView.setNeedsLayout()
-        setNeedsLayout()
+        textLabelView.markNeedsLayout()
+        markNeedsLayout()
 
-        textView.setNeedsDisplay()
-        setNeedsDisplay()
+        textLabelView.markNeedsDisplay()
+        markNeedsDisplay()
     }
 }

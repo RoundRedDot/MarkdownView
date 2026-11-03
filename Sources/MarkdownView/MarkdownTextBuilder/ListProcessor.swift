@@ -6,32 +6,41 @@
 import CoreText
 import Litext
 import MarkdownParser
-import UIKit
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 
 // MARK: - ListProcessor
 
+@MainActor
 final class ListProcessor {
     private let theme: MarkdownTheme
-    private let context: MarkdownTextView.PreprocessedContent
-    private let viewProvider: ReusableViewProvider
+    private let context: MarkdownContent
     private let bulletDrawing: TextBuilder.BulletDrawingCallback?
     private let numberedDrawing: TextBuilder.NumberedDrawingCallback?
     private let checkboxDrawing: TextBuilder.CheckboxDrawingCallback?
+    /// The view the markers are drawn for; see `MarkLineDrawingAction`.
+    private let drawingOwner: ObjectIdentifier?
+    private let inlineTextDecoration: TextBuilder.InlineTextDecoration?
 
     init(
         theme: MarkdownTheme,
-        viewProvider: ReusableViewProvider,
-        context: MarkdownTextView.PreprocessedContent,
+        context: MarkdownContent,
         bulletDrawing: TextBuilder.BulletDrawingCallback?,
         numberedDrawing: TextBuilder.NumberedDrawingCallback?,
-        checkboxDrawing: TextBuilder.CheckboxDrawingCallback?
+        checkboxDrawing: TextBuilder.CheckboxDrawingCallback?,
+        drawingOwner: ObjectIdentifier?,
+        inlineTextDecoration: TextBuilder.InlineTextDecoration?,
     ) {
         self.theme = theme
-        self.viewProvider = viewProvider
         self.context = context
         self.bulletDrawing = bulletDrawing
         self.numberedDrawing = numberedDrawing
         self.checkboxDrawing = checkboxDrawing
+        self.drawingOwner = drawingOwner
+        self.inlineTextDecoration = inlineTextDecoration
     }
 
     func processBulletedList(items: [RawListItem]) -> NSAttributedString {
@@ -49,18 +58,7 @@ final class ListProcessor {
         return renderListItems(items)
     }
 
-    private func listIndentMultiple(for count: Int) -> CGFloat {
-        assert(count >= 0)
-        if count <= 9 { return 1.5 }
-        if count <= 99 { return 2 }
-        if count <= 999 { return 3 }
-        if count <= 9999 { return 4 }
-        if count <= 99999 { return 5 }
-        assertionFailure() // fuck you
-        return 1
-    }
-
-    private func renderListItem(_ item: ListItem, reduceLineSpacing: Bool = false, total _: Int) -> NSAttributedString {
+    private func renderListItem(_ item: ListItem, reduceLineSpacing: Bool = false) -> NSAttributedString {
         let paragraphStyle: NSMutableParagraphStyle = .init()
         paragraphStyle.paragraphSpacing = reduceLineSpacing ? theme.spacings.listItem : theme.spacings.listEnd
         paragraphStyle.lineSpacing = theme.spacings.line
@@ -74,33 +72,53 @@ final class ListProcessor {
         let string = NSMutableAttributedString()
         let theme = theme
         if item.showsMarker {
-            string.append(.init(string: LTXReplacementText, attributes: [
+            string.append(.init(string: TextLabel.Attachment.replacementText, attributes: [
                 .font: theme.fonts.body,
-                .ltxLineDrawingCallback: LTXLineDrawingAction(action: { context, line, lineOrigin in
-                    if item.ordered {
-                        numberedDrawing(context, line, lineOrigin, item.index)
-                    } else if item.isTask {
-                        checkboxDrawing(context, line, lineOrigin, item.isDone)
-                    } else {
-                        bulletDrawing(context, line, lineOrigin, item.depth)
-                    }
-                }),
+                // A marker is drawn rather than typeset, so the only thing copying it
+                // would pick up is the replacement character itself — which pastes as
+                // an `[obj]` box. The attachment hands the pasteboard the markdown the
+                // drawing stands for instead.
+                .litextAttachment: TextLabel.Attachment.hold(
+                    attrString: .init(string: Self.markerText(for: item)),
+                ),
+                .litextLineDrawingAction: markerDrawing(
+                    for: item,
+                    bullet: bulletDrawing,
+                    numbered: numberedDrawing,
+                    checkbox: checkboxDrawing,
+                ),
             ]))
         }
-        string.append(item.paragraph.render(theme: theme, context: context, viewProvider: viewProvider))
+        string.append(item.paragraph.render(theme: theme, context: context, decoration: inlineTextDecoration))
 
         string.addAttributes(
             [.paragraphStyle: paragraphStyle],
-            range: .init(location: 0, length: string.length)
+            range: .init(location: 0, length: string.length),
         )
         string.append(.init(string: "\n"))
         return string
     }
 
+    /// The markdown a drawn list marker stands for, used when the item is copied.
+    ///
+    /// Depth is expressed with two spaces per level so a copied bullet list nests
+    /// the way it looks. An ordered marker is wider than that indent, so a numbered
+    /// list nested inside another numbered list pastes back as a flat one.
+    private static func markerText(for item: ListItem) -> String {
+        let indent = String(repeating: "  ", count: item.depth)
+        if item.isTask {
+            return indent + (item.isDone ? "- [x] " : "- [ ] ")
+        }
+        if item.ordered {
+            return indent + "\(item.index). "
+        }
+        return indent + "- "
+    }
+
     private func renderListItems(_ items: [ListItem]) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for (index, item) in items.enumerated() {
-            let rendered = renderListItem(item, reduceLineSpacing: index != items.count - 1, total: items.count)
+            let rendered = renderListItem(item, reduceLineSpacing: index != items.count - 1)
             result.append(rendered)
         }
         return result
@@ -110,6 +128,33 @@ final class ListProcessor {
 // MARK: - List Processing Types and Logic
 
 extension ListProcessor {
+    private func markerDrawing(
+        for item: ListItem,
+        bullet: @escaping TextBuilder.BulletDrawingCallback,
+        numbered: @escaping TextBuilder.NumberedDrawingCallback,
+        checkbox: @escaping TextBuilder.CheckboxDrawingCallback,
+    ) -> MarkLineDrawingAction {
+        let mark: MarkLineDrawingAction.Mark = if item.ordered {
+            .numbered(item.index)
+        } else if item.isTask {
+            .checkbox(isDone: item.isDone)
+        } else {
+            .bullet(depth: item.depth)
+        }
+        return MarkLineDrawingAction(mark: mark, theme: theme, owner: drawingOwner) { context, line, lineOrigin in
+            switch mark {
+            case let .numbered(index):
+                numbered(context, line, lineOrigin, index)
+            case let .checkbox(isDone):
+                checkbox(context, line, lineOrigin, isDone)
+            case let .bullet(depth):
+                bullet(context, line, lineOrigin, depth)
+            case .thematicBreak:
+                assertionFailure()
+            }
+        }
+    }
+
     private enum List {
         case bulleted([RawListItem])
         case numbered(Int, [RawListItem])
@@ -163,9 +208,13 @@ extension ListProcessor {
                     case let .taskList(_, sublist):
                         result.append(contentsOf: flatList(.task(sublist), currentDepth: currentDepth + 1))
                     default:
-                        print("WARNING: Unhandled list item: \(child)")
+                        // The parser lifts every other block out of a list
+                        // item, so only blocks handed in directly reach here.
+                        break
                     }
                 }
+                // Every item takes a number, including one that opens with a
+                // nested list or is empty, so the items after it keep theirs.
                 index += 1
             }
         }

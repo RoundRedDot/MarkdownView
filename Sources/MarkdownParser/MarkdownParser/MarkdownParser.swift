@@ -9,7 +9,7 @@ import cmark_gfm
 import cmark_gfm_extensions
 import Foundation
 
-public class MarkdownParser {
+public final class MarkdownParser: Sendable {
     public init() {}
 
     func withParser<T>(_ block: (UnsafeMutablePointer<cmark_parser>) -> T) -> T {
@@ -33,7 +33,7 @@ public class MarkdownParser {
         return block(parser)
     }
 
-    public struct ParseResult {
+    public struct ParseResult: Sendable {
         public let document: [MarkdownBlockNode]
         public let mathContext: [Int: String]
     }
@@ -44,16 +44,21 @@ public class MarkdownParser {
         let markdown = math.indexedContent ?? markdown
         let nodes = withParser { parser in
             markdown.withCString { str in
-                cmark_parser_feed(parser, str, strlen(str))
+                cmark_parser_feed(parser, str, markdown.utf8.count)
                 return cmark_parser_finish(parser)
             }
         }
-        var blocks = dumpBlocks(root: nodes)
+        defer {
+            if let nodes {
+                cmark_node_free(nodes)
+            }
+        }
+        var blocks = dumpBlocks(root: nodes, mathContext: math)
         blocks = finalizeMathBlocks(blocks, mathContext: math)
         return .init(document: blocks, mathContext: math.contents)
     }
 
-    public struct RootBlockRange {
+    public struct RootBlockRange: Sendable {
         public let type: MarkdownNodeType
         public let startIndex: String.Index
         public let endIndex: String.Index
@@ -64,7 +69,7 @@ public class MarkdownParser {
 
         let root = withParser { parser in
             markdown.withCString { str in
-                cmark_parser_feed(parser, str, strlen(str))
+                cmark_parser_feed(parser, str, markdown.utf8.count)
                 return cmark_parser_finish(parser)
             }
         }
@@ -72,6 +77,7 @@ public class MarkdownParser {
             assertionFailure()
             return ranges
         }
+        defer { cmark_node_free(root) }
 
         assert(root.pointee.type == CMARK_NODE_DOCUMENT.rawValue)
         for block in root.children {
@@ -83,42 +89,48 @@ public class MarkdownParser {
             let endColumn = Int(node.end_column)
 
             guard let startIndex = getIndex(forLine: startLine, column: startColumn, in: markdown),
-                  let endIndex = getIndex(forLine: endLine, column: endColumn, in: markdown)
+                  let endIndex = getIndex(forLine: endLine, column: endColumn, columnIsInclusiveEnd: true, in: markdown)
             else {
                 assertionFailure()
                 continue
             }
             let content = RootBlockRange(type: block.nodeType, startIndex: startIndex, endIndex: endIndex)
             ranges.append(content)
-
-            print("[*] block: \(block.nodeType) at \(content.startIndex) - \(content.endIndex)")
         }
         return ranges
     }
 }
 
-private func getIndex(forLine targetLine: Int, column targetColumn: Int, in text: String) -> String.Index? {
+private func getIndex(forLine targetLine: Int, column targetColumn: Int, columnIsInclusiveEnd: Bool = false, in text: String) -> String.Index? {
     var currentLine = 1
     var lineStartIndex = text.startIndex
 
+    // "\r\n" is a single Character, so search bytes: cmark counts lines by LF.
+    let newline = UInt8(ascii: "\n")
     while currentLine < targetLine {
-        guard let newlineIndex = text[lineStartIndex...].firstIndex(of: "\n") else {
+        guard let newlineIndex = text.utf8[lineStartIndex...].firstIndex(of: newline) else {
             return nil
         }
-        lineStartIndex = text.index(after: newlineIndex)
+        lineStartIndex = text.utf8.index(after: newlineIndex)
         currentLine += 1
     }
 
     // cmark 使用 1-based 列号，需要减1转换为 0-based
-    let targetOffset = targetColumn - 1
+    let targetOffset = columnIsInclusiveEnd ? targetColumn : targetColumn - 1
 
-    let lineEndIndex: String.Index = if let newlineIndex = text[lineStartIndex...].firstIndex(of: "\n") {
+    let lineEndIndex: String.Index = if let newlineIndex = text.utf8[lineStartIndex...].firstIndex(of: newline) {
         newlineIndex
     } else {
         text.endIndex
     }
 
-    let maxOffset = text.distance(from: lineStartIndex, to: lineEndIndex)
+    guard let lineStartUTF8 = lineStartIndex.samePosition(in: text.utf8),
+          let lineEndUTF8 = lineEndIndex.samePosition(in: text.utf8)
+    else {
+        return lineEndIndex
+    }
+
+    let maxOffset = text.utf8.distance(from: lineStartUTF8, to: lineEndUTF8)
 
     if targetOffset > maxOffset {
         return lineEndIndex
@@ -128,5 +140,6 @@ private func getIndex(forLine targetLine: Int, column targetColumn: Int, in text
         return lineStartIndex
     }
 
-    return text.index(lineStartIndex, offsetBy: targetOffset)
+    let utf8Index = text.utf8.index(lineStartUTF8, offsetBy: targetOffset)
+    return utf8Index.samePosition(in: text) ?? lineEndIndex
 }

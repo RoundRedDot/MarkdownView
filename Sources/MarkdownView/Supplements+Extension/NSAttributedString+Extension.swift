@@ -13,6 +13,10 @@ public extension NSAttributedString.Key {
     @inline(__always) static let coreTextRunDelegate = NSAttributedString.Key(rawValue: kCTRunDelegateAttributeName as String)
 }
 
+#if canImport(UIKit)
+import UIKit
+
+@MainActor
 extension NSAttributedString {
     func drawToImage(
             padding: UIEdgeInsets = .zero,
@@ -74,3 +78,5 @@ extension NSAttributedString {
             }
         }
 }
+
+#endif

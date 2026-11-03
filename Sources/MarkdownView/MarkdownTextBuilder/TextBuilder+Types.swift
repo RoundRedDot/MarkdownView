@@ -5,7 +5,11 @@
 
 import CoreText
 import Litext
-import UIKit
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 
 // MARK: - TextBuilder Callback Types
 
@@ -14,15 +18,17 @@ extension TextBuilder {
     typealias BulletDrawingCallback = (CGContext, CTLine, CGPoint, Int) -> Void
     typealias CheckboxDrawingCallback = (CGContext, CTLine, CGPoint, Bool) -> Void
     typealias NumberedDrawingCallback = (CGContext, CTLine, CGPoint, Int) -> Void
-    typealias BlockquoteMarkingCallback = (CGContext, CTLine, CGPoint) -> Void
-    typealias BlockquoteDrawingCallback = (CGContext, CTLine, CGPoint) -> Void
+    /// One run of rendered body text, as the view wants it shown —
+    /// ``MarkdownTextView/decorate(inlineText:theme:)`` seen from the builder.
+    /// The theme is not a parameter because a build has exactly one.
+    typealias InlineTextDecoration = (NSAttributedString) -> NSAttributedString
 }
 
 // MARK: - RenderText
 
 struct RenderText {
     let attributedString: NSAttributedString
-    let fullWidthAttachments: [LTXAttachment]
+    let fullWidthAttachments: [TextLabel.Attachment]
 }
 
 // MARK: - String Extension

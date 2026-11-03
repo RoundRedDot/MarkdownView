@@ -6,18 +6,48 @@
 import Foundation
 import LRUCache
 import OrderedCollections
-import Splash
-import UIKit
 
-private let kMaxCacheSize = 64 // for each language
-private let kPrefixLength = 8
+#if canImport(UIKit)
+    import UIKit
 
+    public typealias PlatformColor = UIColor
+#elseif canImport(AppKit)
+    import AppKit
+
+    public typealias PlatformColor = NSColor
+#endif
+
+struct CodeHighlightRequest {
+    let key: Int
+    let content: String
+    let language: String?
+    /// The view that asked, or nil when content asked while being built.
+    var requester: ObjectIdentifier?
+}
+
+@MainActor
 public final class CodeHighlighter {
-    public typealias HighlightMap = [NSRange: UIColor]
+    /// What each highlighted range is; the theme colours it when drawn.
+    public typealias HighlightMap = [NSRange: SyntaxToken]
 
     public private(set) var renderCache = LRUCache<Int, HighlightMap>(countLimit: 256)
 
-    private init() {}
+    static let highlightDidUpdateNotification = Notification.Name("wiki.qaq.MarkdownView.CodeHighlighter.highlightDidUpdate")
+
+    /// The keys whose highlighting finished, as a `Set<Int>` in the user info.
+    ///
+    /// Every view listens to one shared notification, so without this a code
+    /// block finishing in one message rebuilds every other message on screen.
+    /// A notification arriving without it is taken as possibly relevant.
+    static let highlightedKeysUserInfoKey = "wiki.qaq.MarkdownView.CodeHighlighter.highlightedKeys"
+
+    private let worker = HighlightWorker()
+    private var pendingRequests: OrderedDictionary<Int, CodeHighlightRequest> = [:]
+    private var inflightKey: Int?
+
+    /// Views share ``current``; a separate instance keeps its own queue.
+    init() {}
+
     public static let current = CodeHighlighter()
 }
 
@@ -33,60 +63,84 @@ public extension CodeHighlighter {
         key: Int?,
         content: String,
         language: String?,
-        theme: MarkdownTheme = .default // doesn't matter we use color only
-    ) -> [NSRange: UIColor] {
+        theme _: MarkdownTheme = .default,
+    ) -> HighlightMap {
         let key = key ?? self.key(for: content, language: language)
         if let value = renderCache.value(forKey: key) {
             return value
         }
-        let highlightedAttributeString = highlightedAttributeString(
-            language: language ?? "",
-            content: content,
-            theme: theme
-        )
-        let map = extractColorAttributes(from: highlightedAttributeString)
+        let map = SyntaxHighlighter.highlight(content, language: language)
         renderCache.setValue(map, forKey: key)
         return map
     }
 }
 
-private extension CodeHighlighter {
-    func highlightedAttributeString(language: String, content: String, theme: MarkdownTheme) -> NSAttributedString {
-        let codeTheme = theme.codeTheme(withFont: theme.fonts.code)
-        let format = AttributedStringOutputFormat(theme: codeTheme)
-        let base = {
-            switch language.lowercased() {
-            case "text", "plaintext":
-                return NSAttributedString(string: content)
-            case "swift":
-                let splash = SyntaxHighlighter(format: format, grammar: SwiftGrammar())
-                return splash.highlight(content)
-            default:
-                let splash = SyntaxHighlighter(format: format)
-                return splash.highlight(content)
-            }
-        }()
-        guard let finalizer = base.mutableCopy() as? NSMutableAttributedString else {
-            return .init()
-        }
-        finalizer.addAttributes([
-            .font: codeTheme.font,
-        ], range: .init(location: 0, length: finalizer.length))
-        return finalizer
+extension CodeHighlighter {
+    func cachedHighlightMap(for key: Int) -> HighlightMap? {
+        renderCache.value(forKey: key)
     }
 
-    func extractColorAttributes(from attributedString: NSAttributedString) -> HighlightMap {
-        var attributes: [NSRange: UIColor] = [:]
-
-        attributedString.enumerateAttribute(
-            .foregroundColor,
-            in: NSRange(location: 0, length: attributedString.length)
-        ) { value, range, _ in
-            guard let color = value as? UIColor else { return }
-            attributes[range] = color
+    /// Queues `requests` ahead of anything already waiting.
+    ///
+    /// What `requester` asked for before is replaced: a streamed block asks
+    /// again with every token, and its earlier prefixes would never be looked
+    /// up. Every view shares this queue, so what another view asked for stays
+    /// queued behind. Requests made while content was built name no view; the
+    /// view showing that content asks again, so any caller replaces them.
+    func scheduleHighlight(requests: [CodeHighlightRequest], requester: ObjectIdentifier? = nil) {
+        var pending: OrderedDictionary<Int, CodeHighlightRequest> = [:]
+        for var request in requests {
+            guard request.key != inflightKey else { continue }
+            guard renderCache.value(forKey: request.key) == nil else { continue }
+            request.requester = requester
+            pending[request.key] = request
         }
+        for (key, waiting) in pendingRequests where pending[key] == nil {
+            guard let owner = waiting.requester, owner != requester else { continue }
+            pending[key] = waiting
+        }
+        pendingRequests = pending
+        processNextRequestIfNeeded()
+    }
 
-        return attributes
+    private func processNextRequestIfNeeded() {
+        guard inflightKey == nil else { return }
+        guard let next = pendingRequests.elements.first else { return }
+        pendingRequests.removeValue(forKey: next.key)
+        let request = next.value
+        inflightKey = request.key
+        worker.highlight(content: request.content, language: request.language) { [weak self] map in
+            self?.finishHighlight(key: request.key, map: map)
+        }
+    }
+
+    private func finishHighlight(key: Int, map: HighlightMap) {
+        inflightKey = nil
+        defer { processNextRequestIfNeeded() }
+        guard renderCache.value(forKey: key) == nil else { return }
+        renderCache.setValue(map, forKey: key)
+        NotificationCenter.default.post(
+            name: Self.highlightDidUpdateNotification,
+            object: nil,
+            userInfo: [Self.highlightedKeysUserInfoKey: Set([key])],
+        )
+    }
+}
+
+private final class HighlightWorker: Sendable {
+    private let queue = DispatchQueue(label: "wiki.qaq.MarkdownView.CodeHighlighter", qos: .userInitiated)
+
+    func highlight(
+        content: String,
+        language: String?,
+        completion: @escaping @MainActor (CodeHighlighter.HighlightMap) -> Void,
+    ) {
+        queue.async {
+            let map = SyntaxHighlighter.highlight(content, language: language)
+            Task { @MainActor in
+                completion(map)
+            }
+        }
     }
 }
 
@@ -102,12 +156,13 @@ public extension CodeHighlighter.HighlightMap {
                 .font: theme.fonts.code,
                 .paragraphStyle: paragraphStyle,
                 .foregroundColor: plainTextColor,
-            ]
+            ],
         )
 
         let length = attributedContent.length
-        for (range, color) in self {
+        for (range, token) in self {
             guard range.location >= 0, range.upperBound <= length else { continue }
+            let color = theme.syntax.color(for: token)
             guard color != plainTextColor else { continue }
             attributedContent.addAttributes([.foregroundColor: color], range: range)
         }

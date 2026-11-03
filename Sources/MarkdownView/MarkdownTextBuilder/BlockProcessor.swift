@@ -6,68 +6,61 @@
 import CoreText
 import Litext
 import MarkdownParser
-import UIKit
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 
 // MARK: - BlockProcessor
 
+@MainActor
 final class BlockProcessor {
     private let theme: MarkdownTheme
     private let viewProvider: ReusableViewProvider
-    private let context: MarkdownTextView.PreprocessedContent
+    private let context: MarkdownContent
     private let thematicBreakDrawing: TextBuilder.DrawingCallback?
-    private let codeDrawing: TextBuilder.DrawingCallback?
-    private let tableDrawing: TextBuilder.DrawingCallback?
-    private let blockquoteMarking: TextBuilder.BlockquoteMarkingCallback?
-    private let blockquoteDrawing: TextBuilder.BlockquoteDrawingCallback?
+    /// The view breaks are drawn for; see `MarkLineDrawingAction`.
+    private let drawingOwner: ObjectIdentifier?
+    private let inlineTextDecoration: TextBuilder.InlineTextDecoration?
 
     init(
         theme: MarkdownTheme,
         viewProvider: ReusableViewProvider,
-        context: MarkdownTextView.PreprocessedContent,
+        context: MarkdownContent,
         thematicBreakDrawing: TextBuilder.DrawingCallback?,
-        codeDrawing: TextBuilder.DrawingCallback?,
-        tableDrawing: TextBuilder.DrawingCallback?,
-        blockquoteMarking: TextBuilder.BlockquoteMarkingCallback?,
-        blockquoteDrawing: TextBuilder.BlockquoteDrawingCallback?
+        drawingOwner: ObjectIdentifier?,
+        inlineTextDecoration: TextBuilder.InlineTextDecoration?,
     ) {
         self.theme = theme
         self.viewProvider = viewProvider
         self.context = context
         self.thematicBreakDrawing = thematicBreakDrawing
-        self.codeDrawing = codeDrawing
-        self.tableDrawing = tableDrawing
-        self.blockquoteMarking = blockquoteMarking
-        self.blockquoteDrawing = blockquoteDrawing
+        self.drawingOwner = drawingOwner
+        self.inlineTextDecoration = inlineTextDecoration
     }
 
     func processHeading(level: Int, contents: [MarkdownInlineNode]) -> NSAttributedString {
-        let font: UIFont
-        let spacingBefore: CGFloat
-        let spacingAfter: CGFloat
-        switch level {
-        case 1:
-            font = theme.fonts.heading1 ?? theme.fonts.title
-            spacingBefore = theme.spacings.heading1Before
-            spacingAfter = theme.spacings.heading1After
-        case 2:
-            font = theme.fonts.heading2 ?? theme.fonts.title
-            spacingBefore = theme.spacings.heading1Before
-            spacingAfter = theme.spacings.heading1After
-        default:
-            font = theme.fonts.heading3 ?? theme.fonts.title
-            spacingBefore = theme.spacings.headingBefore
-            spacingAfter = theme.spacings.headingAfter
+        let font = switch level {
+        case 1: theme.fonts.heading1 ?? theme.fonts.title
+        case 2: theme.fonts.heading2 ?? theme.fonts.title
+        default: theme.fonts.heading3 ?? theme.fonts.title
         }
 
         return buildWithParagraphSync { paragraph in
-            paragraph.paragraphSpacing = spacingAfter
-            paragraph.paragraphSpacingBefore = spacingBefore
+            paragraph.paragraphSpacing = level <= 2 ? theme.spacings.heading1After : theme.spacings.headingAfter
+            paragraph.paragraphSpacingBefore = level <= 2 ? theme.spacings.heading1Before : theme.spacings.headingBefore
         } content: {
-            let string = contents.render(theme: theme, context: context, viewProvider: viewProvider)
-            string.addAttributes(
-                [.font: font],
-                range: NSRange(location: 0, length: string.length)
-            )
+            let string = contents.render(theme: theme, context: context, decoration: inlineTextDecoration)
+            let fullRange = NSRange(location: 0, length: string.length)
+            string.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
+                // Inline code keeps its monospaced face inside a heading.
+                guard (value as? PlatformFont) != theme.fonts.codeInline else { return }
+                string.addAttribute(.font, value: font, range: range)
+            }
+            // Replacing the font discarded the fallback the body text resolved
+            // for its language, so resolve it again for the title font.
+            MarkdownContentLocale.resolveFonts(in: string, fallbackLocale: context.locale)
             return string
         }
     }
@@ -77,7 +70,7 @@ final class BlockProcessor {
             paragraph.paragraphSpacing = theme.spacings.paragraph
             paragraph.lineSpacing = theme.spacings.line
         } content: {
-            let rendered = contents.render(theme: theme, context: context, viewProvider: viewProvider)
+            let rendered = contents.render(theme: theme, context: context, decoration: inlineTextDecoration)
             if rendered.length == 0 {
                 return NSMutableAttributedString(string: " ", attributes: [.font: theme.fonts.body])
             }
@@ -88,12 +81,16 @@ final class BlockProcessor {
     func processThematicBreak() -> NSAttributedString {
         buildWithParagraphSync {
             let drawingCallback = self.thematicBreakDrawing
-            return .init(string: LTXReplacementText, attributes: [
+            return .init(string: TextLabel.Attachment.replacementText, attributes: [
                 .font: theme.fonts.body,
-                .ltxAttachment: LTXAttachment.hold(attrString: .init(string: "\n\n")),
-                .ltxLineDrawingCallback: LTXLineDrawingAction(action: { context, line, lineOrigin in
+                .litextAttachment: TextLabel.Attachment.hold(attrString: .init(string: "\n\n")),
+                .litextLineDrawingAction: MarkLineDrawingAction(
+                    mark: .thematicBreak,
+                    theme: theme,
+                    owner: drawingOwner,
+                ) { context, line, lineOrigin in
                     drawingCallback?(context, line, lineOrigin)
-                }),
+                },
             ])
         }
     }
@@ -101,23 +98,28 @@ final class BlockProcessor {
     func processCodeBlock(
         language: String?,
         content: String,
-        highlightMap: CodeHighlighter.HighlightMap
+        highlightMap: CodeHighlighter.HighlightMap?,
+        highlightKey: Int,
     ) -> (NSAttributedString, CodeView) {
         let content = content.deletingSuffix(of: .whitespacesAndNewlines)
         let codeView = viewProvider.acquireCodeView()
         codeView.theme = theme
         codeView.language = language ?? ""
-        codeView.highlightMap = highlightMap
-        codeView.content = content
-        let drawer = codeDrawing!
+        codeView.highlightKey = highlightKey
+        codeView.setContent(content, highlightMap: highlightMap, highlightKey: highlightKey)
+        let appearance = ContextViewAttachment.Appearance.of(codeView)
         let text = buildWithParagraphSync { paragraph in
-            let height = CodeView.intrinsicHeight(for: content, theme: theme)
-            paragraph.minimumLineHeight = height
+            // Reserve exactly what the view will occupy. Estimating the height from
+            // the source text instead lets the two numbers drift apart, and the view
+            // then paints over whatever follows it.
+            paragraph.minimumLineHeight = appearance.size.height
         } content: {
-            .init(string: LTXReplacementText, attributes: [
+            .init(string: TextLabel.Attachment.replacementText, attributes: [
                 .font: theme.fonts.body,
-                .ltxAttachment: LTXAttachment.hold(attrString: .init(string: content + "\n")),
-                .ltxLineDrawingCallback: LTXLineDrawingAction { drawer($0, $1, $2) },
+                .litextAttachment: ContextViewAttachment(
+                    representation: .init(string: content + "\n"),
+                    appearance: appearance,
+                ),
                 .contextView: codeView,
             ])
         }
@@ -132,7 +134,9 @@ final class BlockProcessor {
         let baseParagraphStyle = NSMutableParagraphStyle()
         baseParagraphStyle.firstLineHeadIndent = theme.sizes.blockquoteIndent
         baseParagraphStyle.headIndent = theme.sizes.blockquoteIndent
-        baseParagraphStyle.tailIndent = -4
+        // No tail indent: a negative one hides from line origins and widths, so
+        // the text layout gives up measuring from the laid-out frame and
+        // typesets every document holding a quote twice per update.
         baseParagraphStyle.paragraphSpacing = theme.spacings.blockquoteParagraph
         baseParagraphStyle.lineSpacing = theme.spacings.line
 
@@ -141,16 +145,14 @@ final class BlockProcessor {
                 assertionFailure("Blockquote should only contain paragraphs after flattening")
                 continue
             }
-            let paragraphContent = content.render(theme: theme, context: context, viewProvider: viewProvider)
-            if let quoteColor = theme.colors.blockquoteText {
-                // 只覆盖仍是正文色的文字，保留链接 / 代码等自带颜色
-                paragraphContent.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: paragraphContent.length)) { value, range, _ in
-                    if let color = value as? UIColor, color == theme.colors.body {
-                        paragraphContent.addAttribute(.foregroundColor, value: quoteColor, range: range)
-                    }
-                }
+            let paragraphContent = content.render(theme: theme, context: context, decoration: inlineTextDecoration)
+            if let color = theme.colors.blockquoteText {
+                paragraphContent.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: paragraphContent.length))
             }
             result.append(paragraphContent)
+            if !result.string.hasSuffix("\n") {
+                result.append(NSAttributedString(string: "\n", attributes: [.font: theme.fonts.body]))
+            }
         }
 
         while result.string.hasSuffix("\n") {
@@ -159,56 +161,69 @@ final class BlockProcessor {
         guard result.length > 0 else { return result }
 //        result.append(.init(string: "\n"))
 
-        result.addAttribute(
-            .paragraphStyle,
-            value: baseParagraphStyle, range: NSRange(location: 0, length: result.length)
-        )
-
-        let marker = blockquoteMarking!
-        let drawer = blockquoteDrawing!
-
-        result.insert(buildWithParagraphSync(withNewLine: false) { paragraph in
-            paragraph = baseParagraphStyle
-        } content: {
-            .init(string: LTXReplacementText, attributes: [
-                .font: theme.fonts.body,
+        // The quoting bar is positioned from these runs after layout rather than
+        // stroked while drawing: a line drawing action only runs for the lines a
+        // redraw happens to touch, so a bar painted from one line's action comes
+        // out clipped to whatever band was dirty.
+        result.addAttributes(
+            [
                 .paragraphStyle: baseParagraphStyle,
-                .ltxLineDrawingCallback: LTXLineDrawingAction { marker($0, $1, $2) },
-            ])
-        }, at: 0)
-        result.append(buildWithParagraphSync(withNewLine: true) {
-            .init(string: LTXReplacementText, attributes: [
-                .font: theme.fonts.body,
-                .ltxLineDrawingCallback: LTXLineDrawingAction { drawer($0, $1, $2) },
-            ])
-        })
+                .blockquoteGroup: BlockquoteGroup(),
+            ],
+            range: NSRange(location: 0, length: result.length),
+        )
+        result.append(.init(string: "\n", attributes: [
+            .font: theme.fonts.body,
+            .paragraphStyle: baseParagraphStyle,
+        ]))
 
         return result
     }
 
-    func processTable(rows: [RawTableRow]) -> (NSAttributedString, TableView) {
+    func processTable(
+        columnAlignments: [RawTableColumnAlignment],
+        rows: [RawTableRow],
+    ) -> (NSAttributedString, TableView) {
         let tableView = viewProvider.acquireTableView()
-        // 复用的 TableView 一直停留在 .default 主题，必须先同步当前主题再填内容（影响表头底色、边框、字体、行高）
-        tableView.setTheme(theme)
-        let contents = rows.map {
-            $0.cells.map { rawCell in
-                rawCell.content.render(theme: theme, context: context, viewProvider: viewProvider)
+        let representedText: NSAttributedString
+        if let reused = tableView.representedText(
+            reusingRows: rows,
+            columnAlignments: columnAlignments,
+            theme: theme,
+            content: context,
+        ) {
+            representedText = reused
+        } else {
+            let contents = rows.map {
+                $0.cells.map { rawCell in
+                    rawCell.content.render(theme: theme, context: context, decoration: inlineTextDecoration)
+                }
             }
+            let allContent = contents
+                .map { $0.map(\.string).joined(separator: "\t") }
+                .joined(separator: "\n")
+            representedText = NSAttributedString(string: allContent + "\n")
+            tableView.setTheme(theme)
+            tableView.setContents(contents, columnAlignments: columnAlignments)
+            tableView.rememberRenderedSource(
+                rows: rows,
+                columnAlignments: columnAlignments,
+                theme: theme,
+                content: context,
+                representedText: representedText,
+            )
         }
-        let allContent = contents
-            .map { $0.map(\.string).joined(separator: "\t") }
-            .joined(separator: "\n")
-        let representedText = NSAttributedString(string: allContent + "\n")
-        tableView.setContents(contents)
-        let drawer = tableDrawing!
 
+        let appearance = ContextViewAttachment.Appearance.of(tableView)
         let text = buildWithParagraphSync { paragraph in
-            paragraph.minimumLineHeight = tableView.intrinsicContentHeight
+            paragraph.minimumLineHeight = appearance.size.height
         } content: {
-            .init(string: LTXReplacementText, attributes: [
+            .init(string: TextLabel.Attachment.replacementText, attributes: [
                 .font: theme.fonts.body,
-                .ltxAttachment: LTXAttachment.hold(attrString: representedText),
-                .ltxLineDrawingCallback: LTXLineDrawingAction { drawer($0, $1, $2) },
+                .litextAttachment: ContextViewAttachment(
+                    representation: representedText,
+                    appearance: appearance,
+                ),
                 .contextView: tableView,
             ])
         }
@@ -222,7 +237,7 @@ extension BlockProcessor {
     private func buildWithParagraphSync(
         withNewLine: Bool = true,
         modifier: (inout NSMutableParagraphStyle) -> Void = { _ in },
-        content: () -> NSMutableAttributedString
+        content: () -> NSMutableAttributedString,
     ) -> NSMutableAttributedString {
         var paragraphStyle: NSMutableParagraphStyle = .init()
         paragraphStyle.paragraphSpacing = theme.spacings.paragraph
@@ -232,23 +247,11 @@ extension BlockProcessor {
         let string = content()
         string.addAttributes(
             [.paragraphStyle: paragraphStyle],
-            range: .init(location: 0, length: string.length)
+            range: .init(location: 0, length: string.length),
         )
         if withNewLine, !string.string.hasSuffix("\n") {
             string.append(.init(string: "\n"))
         }
         return string
-    }
-
-    private func removeLeadingSpacing(from attributedString: NSAttributedString) -> NSAttributedString {
-        let mutableString = attributedString.mutableCopy() as! NSMutableAttributedString
-        mutableString.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: mutableString.length), options: []) { value, range, _ in
-            if let style = value as? NSParagraphStyle {
-                let mutableStyle = style.mutableCopy() as! NSMutableParagraphStyle
-                mutableStyle.paragraphSpacingBefore = 0
-                mutableString.addAttribute(.paragraphStyle, value: mutableStyle, range: range)
-            }
-        }
-        return mutableString
     }
 }
