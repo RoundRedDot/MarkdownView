@@ -38,6 +38,10 @@ public class LTXLabel: LTXPlatformView, Identifiable {
         didSet { if !isSelectable { clearSelection() } }
     }
 
+    /// 双击选词、三击选行。宿主把双击另作他用（比如 ideaShell 的 AI 回复双击全屏）时关掉，
+    /// 长按选字改用 `selectWord(at:)`
+    public var selectsTextOnMultipleTaps: Bool = true
+
     public internal(set) var isInteractionInProgress = false
 
     public weak var delegate: LTXLabelDelegate?

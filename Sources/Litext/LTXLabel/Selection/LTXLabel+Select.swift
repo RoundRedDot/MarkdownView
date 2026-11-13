@@ -13,6 +13,25 @@ public extension LTXLabel {
         guard let range = selectAllRange() else { return }
         selectionRange = range
     }
+
+    /// 选中某一点所在的词（中文按系统分词，通常两三个字），给宿主做「长按选字」；没选上返回 false
+    @discardableResult
+    func selectWord(at point: CGPoint) -> Bool {
+        guard isSelectable, let index = textIndexAtPoint(point) else { return false }
+        selectWordAtIndex(index)
+        guard let range = selectionRange, range.length > 0 else { return false }
+        return true
+    }
+
+    /// 在当前选区上方弹出系统的拷贝菜单
+    func presentSelectionMenu() {
+        showSelectionMenuController()
+    }
+
+    /// 清掉当前选区
+    func clearTextSelection() {
+        clearSelection()
+    }
 }
 
 extension LTXLabel {

@@ -90,6 +90,7 @@ public extension LTXLabel {
 
         bumpClickCountIfWithinTimeGap()
         if !isSelectable { return }
+        if !selectsTextOnMultipleTaps, interactionState.clickCount > 1 { return }
 
         if interactionState.clickCount <= 1 {
             if isPointerDevice(touch: firstTouch) {
