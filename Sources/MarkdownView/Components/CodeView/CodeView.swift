@@ -27,7 +27,15 @@ final class CodeView: UIView {
         }
     }
 
-    var highlightMap: CodeHighlighter.HighlightMap = .init()
+    var highlightMap: CodeHighlighter.HighlightMap = .init() {
+        didSet {
+            guard oldValue != highlightMap else { return }
+            textView.attributedText = highlightMap.apply(to: content, with: theme)
+        }
+    }
+    var highlightKey: Int? {
+        didSet { updateHighlight() }
+    }
 
     var content: String = "" {
         didSet {
@@ -61,6 +69,17 @@ final class CodeView: UIView {
         super.init(frame: frame)
         configureSubviews()
         updateLineNumberView()
+        NotificationCenter.default.addObserver(self, selector: #selector(highlightDidUpdate(_:)), name: CodeHighlighter.highlightDidUpdate, object: nil)
+    }
+
+    @objc private func highlightDidUpdate(_ notification: Notification) {
+        guard let key = notification.userInfo?["key"] as? Int, key == highlightKey else { return }
+        updateHighlight()
+    }
+
+    private func updateHighlight() {
+        guard let highlightKey, let map = CodeHighlighter.current.cachedHighlightMap(for: highlightKey) else { return }
+        highlightMap = map
     }
 
     @available(*, unavailable)

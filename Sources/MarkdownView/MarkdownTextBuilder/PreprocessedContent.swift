@@ -69,7 +69,11 @@ public extension MarkdownParser.ParseResult {
             pending.append(contentsOf: node.children)
             if case let .codeBlock(fenceInfo, content) = node {
                 let key = CodeHighlighter.current.key(for: content, language: fenceInfo)
-                highlightMaps[key] = CodeHighlighter.current.highlight(key: key, content: content, language: fenceInfo)
+                if let map = CodeHighlighter.current.cachedHighlightMap(for: key) {
+                    highlightMaps[key] = map
+                } else {
+                    CodeHighlighter.current.scheduleHighlight(key: key, content: content, language: fenceInfo)
+                }
             }
         }
     }

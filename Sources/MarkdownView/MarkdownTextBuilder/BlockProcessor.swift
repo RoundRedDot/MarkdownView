@@ -103,12 +103,14 @@ final class BlockProcessor {
         content: String,
         highlightMap: CodeHighlighter.HighlightMap
     ) -> (NSAttributedString, CodeView) {
+        let highlightKey = CodeHighlighter.current.key(for: content, language: language)
         let content = content.deletingSuffix(of: .whitespacesAndNewlines)
         let codeView = viewProvider.acquireCodeView()
         codeView.theme = theme
         codeView.language = language ?? ""
         codeView.highlightMap = highlightMap
         codeView.content = content
+        codeView.highlightKey = highlightKey
         let drawer = codeDrawing!
         let text = buildWithParagraphSync { paragraph in
             let height = CodeView.intrinsicHeight(for: content, theme: theme)

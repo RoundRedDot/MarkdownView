@@ -16,9 +16,32 @@ public final class CodeHighlighter {
     public typealias HighlightMap = [NSRange: UIColor]
 
     public private(set) var renderCache = LRUCache<Int, HighlightMap>(countLimit: 256)
+    private let queue = DispatchQueue(label: "wiki.qaq.MarkdownView.CodeHighlighter", qos: .userInitiated)
+    private var pendingKeys: Set<Int> = []
+    static let highlightDidUpdate = Notification.Name("wiki.qaq.MarkdownView.CodeHighlighter.highlightDidUpdate")
 
     private init() {}
     public static let current = CodeHighlighter()
+}
+
+extension CodeHighlighter {
+    func cachedHighlightMap(for key: Int) -> HighlightMap? {
+        renderCache.value(forKey: key)
+    }
+
+    func scheduleHighlight(key: Int, content: String, language: String?) {
+        guard pendingKeys.insert(key).inserted else { return }
+        let theme = MarkdownTheme.default.codeTheme(withFont: MarkdownTheme.default.fonts.code)
+        queue.async { [self] in
+            let attributed = Self.highlightedAttributeString(language: language ?? "", content: content, codeTheme: theme)
+            let map = Self.extractColorAttributes(from: attributed)
+            DispatchQueue.main.async { [self] in
+                pendingKeys.remove(key)
+                renderCache.setValue(map, forKey: key)
+                NotificationCenter.default.post(name: Self.highlightDidUpdate, object: self, userInfo: ["key": key])
+            }
+        }
+    }
 }
 
 public extension CodeHighlighter {
@@ -39,20 +62,19 @@ public extension CodeHighlighter {
         if let value = renderCache.value(forKey: key) {
             return value
         }
-        let highlightedAttributeString = highlightedAttributeString(
+        let highlightedAttributeString = Self.highlightedAttributeString(
             language: language ?? "",
             content: content,
-            theme: theme
+            codeTheme: theme.codeTheme(withFont: theme.fonts.code)
         )
-        let map = extractColorAttributes(from: highlightedAttributeString)
+        let map = Self.extractColorAttributes(from: highlightedAttributeString)
         renderCache.setValue(map, forKey: key)
         return map
     }
 }
 
 private extension CodeHighlighter {
-    func highlightedAttributeString(language: String, content: String, theme: MarkdownTheme) -> NSAttributedString {
-        let codeTheme = theme.codeTheme(withFont: theme.fonts.code)
+    static func highlightedAttributeString(language: String, content: String, codeTheme: Splash.Theme) -> NSAttributedString {
         let format = AttributedStringOutputFormat(theme: codeTheme)
         let base = {
             switch language.lowercased() {
@@ -75,7 +97,7 @@ private extension CodeHighlighter {
         return finalizer
     }
 
-    func extractColorAttributes(from attributedString: NSAttributedString) -> HighlightMap {
+    static func extractColorAttributes(from attributedString: NSAttributedString) -> HighlightMap {
         var attributes: [NSRange: UIColor] = [:]
 
         attributedString.enumerateAttribute(
