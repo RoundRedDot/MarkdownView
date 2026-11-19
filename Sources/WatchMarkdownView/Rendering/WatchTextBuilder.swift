@@ -881,7 +881,8 @@ private extension MarkdownInlineNode {
         case let .emphasis(children),
              let .strong(children),
              let .strikethrough(children),
-             let .link(_, children):
+             let .link(_, children),
+             let .footnote(_, children):
             children.map(\.plainText).joined()
         case let .image(source, _):
             source

@@ -8,6 +8,29 @@ import Testing
     struct MarkdownViewCatalystTests {
         @MainActor
         @Test
+        func `Fork citations retain links and custom colors`() throws {
+            var theme = MarkdownTheme.default
+            theme.colors.footnote = .red
+            theme.colors.footnoteBackground = .yellow
+            let view = MarkdownTextView()
+            view.theme = theme
+            let source = "引用 [^1](https://example.com/one) 和 [^2](https://example.com/two)"
+            let parsed = MarkdownParser().parse(source)
+            view.setMarkdownManually(.init(parserResult: parsed, theme: theme))
+            let text = view.textView.attributedText
+            var links: [String] = []
+            text.enumerateAttribute(.link, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+                guard let link = value as? String else { return }
+                links.append(link)
+                #expect(text.attribute(.mathLatexContent, at: range.location, effectiveRange: nil) == nil)
+            }
+            #expect(links == ["https://example.com/one", "https://example.com/two"])
+            #expect(view.theme.colors.footnote == .red)
+            #expect(view.theme.colors.footnoteBackground == .yellow)
+        }
+
+        @MainActor
+        @Test
         func `Table cells are reused across reconfiguration`() {
             let manager = TableViewCellManager()
             let container = UIView(frame: .init(x: 0, y: 0, width: 400, height: 400))

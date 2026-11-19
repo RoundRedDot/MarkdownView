@@ -324,6 +324,7 @@ extension MarkdownInlineNode {
     /// 行内代码按「文字 + 内边距 + 圆角底色」整体绘制成一张图，插入为附件。
     /// CoreText 不会绘制 .backgroundColor，也不支持内边距 / 圆角，只能这样做才能和网页编辑器的样式一致。
     /// 选中 / 复制时附件仍持有原始文字。
+    @MainActor
     static func renderInlineCodePill(_ string: String, theme: MarkdownTheme) -> NSAttributedString {
         let text = NSAttributedString(string: string, attributes: [
             .font: theme.fonts.codeInline,
