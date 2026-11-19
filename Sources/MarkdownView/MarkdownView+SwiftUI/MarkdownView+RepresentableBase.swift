@@ -8,6 +8,7 @@
 import MarkdownParser
 import SwiftUI
 
+@available(iOS 16.0, *)
 @MainActor
 protocol MarkdownViewRepresentableBase {
     var contentSource: MarkdownView.ContentSource { get }
@@ -16,6 +17,7 @@ protocol MarkdownViewRepresentableBase {
     var isStreaming: Bool? { get }
 }
 
+@available(iOS 16.0, *)
 extension MarkdownViewRepresentableBase {
     func createMarkdownTextView() -> MarkdownTextView {
         let view = isStreaming == nil ? MarkdownTextView() : MarkdownStreamView()

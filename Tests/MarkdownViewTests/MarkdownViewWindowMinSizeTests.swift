@@ -11,6 +11,7 @@ import Testing
 struct MarkdownViewSizingProbeTests {
     @MainActor
     @Test
+    @available(iOS 16.0, *)
     func `Zero-width probe does not report the concrete width as a minimum`() throws {
         let view = MarkdownTextView()
         view.setContentImmediately(.init(markdown: """

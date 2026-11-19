@@ -138,6 +138,7 @@ struct MarkdownViewBlockOrderTests {
 
     @MainActor
     @Test
+    @available(iOS 16.0, *)
     func `Shrinking the width keeps every block below the previous block`() {
         let view = MarkdownTextView()
         let coordinator = MarkdownViewCoordinator()

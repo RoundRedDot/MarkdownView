@@ -141,6 +141,7 @@ struct MarkdownStreamingTailTests {
     // MARK: - SwiftUI
 
     @Test
+    @available(iOS 16.0, *)
     func `Ending a stream without new text parses again without the repair`() async throws {
         let view = MarkdownTextView()
         let coordinator = MarkdownViewCoordinator()
@@ -159,6 +160,7 @@ struct MarkdownStreamingTailTests {
     }
 
     @Test
+    @available(iOS 16.0, *)
     func `Ending a stream the repair left alone keeps the content on screen`() async throws {
         let view = MarkdownTextView()
         let coordinator = MarkdownViewCoordinator()

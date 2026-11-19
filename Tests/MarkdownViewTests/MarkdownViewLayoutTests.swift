@@ -411,6 +411,7 @@ struct MarkdownViewLayoutTests {
 
     @MainActor
     @Test
+    @available(iOS 16.0, *)
     func `MarkdownView coordinator sizes representable to full content height`() throws {
         let view = MarkdownTextView()
         view.frame = .init(x: 0, y: 0, width: 388, height: 925)

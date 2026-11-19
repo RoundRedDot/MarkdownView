@@ -126,7 +126,10 @@ struct MarkdownLocaleLanguageTests {
         ],
     )
     func `A locale is folded by its language, script and region`(identifier: String, expected: String) {
-        #expect(MarkdownContentLocale.normalizedLanguage(Locale(identifier: identifier).language) == expected)
+        if #available(iOS 16.0, *) {
+            #expect(MarkdownContentLocale.normalizedLanguage(Locale(identifier: identifier).language) == expected)
+        }
+        #expect(MarkdownContentLocale.normalizedLegacyLanguage(Locale(identifier: identifier)) == expected)
     }
 
     @MainActor

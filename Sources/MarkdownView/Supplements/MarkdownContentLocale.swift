@@ -146,7 +146,12 @@ enum MarkdownContentLocale {
         if let cached = cjkLanguageByLocale[key] {
             return cached
         }
-        let language = normalizedLanguage(locale.language)
+        let language: String
+        if #available(iOS 16.0, *) {
+            language = normalizedLanguage(locale.language)
+        } else {
+            language = normalizedLegacyLanguage(locale)
+        }
         cjkLanguageByLocale[key] = language
         return language
     }
@@ -171,6 +176,7 @@ enum MarkdownContentLocale {
     ///
     /// Any language that is not Chinese, Japanese or Korean falls back to
     /// Simplified Chinese, as it always has.
+    @available(iOS 16.0, *)
     static func normalizedLanguage(_ language: Locale.Language) -> String {
         switch language.languageCode {
         case .japanese?:
@@ -192,6 +198,22 @@ enum MarkdownContentLocale {
             return "zh-Hant"
         }
         return "zh-Hant-\(region.identifier)"
+    }
+
+    // Locale.Language is unavailable on iOS 15. Explicit scripts take precedence
+    // over the traditional Chinese script inferred from Taiwan, Hong Kong or Macau.
+    static func normalizedLegacyLanguage(_ locale: Locale) -> String {
+        switch locale.languageCode {
+        case "ja": return "ja"
+        case "ko": return "ko"
+        case "zh": break
+        default: return "zh-Hans"
+        }
+        let region = locale.regionCode
+        let script = locale.scriptCode ?? (["TW", "HK", "MO"].contains(region ?? "") ? "Hant" : "Hans")
+        guard script == "Hant" else { return "zh-Hans" }
+        guard let region, region != "TW" else { return "zh-Hant" }
+        return "zh-Hant-\(region)"
     }
 
     private static func characterRanges(in string: String) -> [NSRange] {

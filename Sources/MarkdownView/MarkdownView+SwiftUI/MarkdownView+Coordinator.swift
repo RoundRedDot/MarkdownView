@@ -9,6 +9,7 @@ import Foundation
 import MarkdownParser
 import SwiftUI
 
+@available(iOS 16.0, *)
 @MainActor
 final class MarkdownViewCoordinator {
     static let throttleInterval: TimeInterval = 1 / 20

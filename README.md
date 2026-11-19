@@ -32,7 +32,7 @@ dependencies: [
 ```
 
 Platform compatibility:
-- iOS 16.0+
+- iOS 15.0+ for UIKit; iOS 16.0+ for the SwiftUI wrapper
 - macOS 13.0+
 - Mac Catalyst 16.0+
 - visionOS 1.0+

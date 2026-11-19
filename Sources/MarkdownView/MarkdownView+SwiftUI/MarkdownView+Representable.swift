@@ -10,6 +10,7 @@ import SwiftUI
 #if canImport(UIKit)
     import UIKit
 
+    @available(iOS 16.0, *)
     struct MarkdownViewRepresentable: UIViewRepresentable, MarkdownViewRepresentableBase {
         let contentSource: MarkdownView.ContentSource
         let theme: MarkdownTheme

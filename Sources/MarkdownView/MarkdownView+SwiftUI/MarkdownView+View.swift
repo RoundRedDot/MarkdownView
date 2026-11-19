@@ -8,6 +8,7 @@
 import MarkdownParser
 import SwiftUI
 
+@available(iOS 16.0, *)
 public struct MarkdownView: View {
     @available(*, deprecated, renamed: "MarkdownContent")
     public typealias PreprocessedContent = MarkdownContent
